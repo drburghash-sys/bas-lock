@@ -130,6 +130,25 @@ public class MainActivity extends Activity {
         content.setPadding(dp(18), dp(44), dp(18), dp(28));
         mainScroll.addView(content, new ScrollView.LayoutParams(-1, -2));
 
+        LinearLayout topNav = new LinearLayout(this);
+        topNav.setOrientation(LinearLayout.HORIZONTAL);
+        topNav.setGravity(Gravity.CENTER);
+        topNav.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        topNav.setPadding(0, 0, 0, dp(14));
+
+        TextView topPlatform = pill("BAS Platform", true);
+        topPlatform.setOnClickListener(v -> openBasPlatformSecurely());
+        topNav.addView(topPlatform);
+
+        TextView topLock = pill("BAS Lock Screen", false);
+        topLock.setOnClickListener(v -> {
+            safeRefreshAll();
+            scrollToTop();
+        });
+        topNav.addView(topLock);
+
+        content.addView(topNav);
+
         clock = tv("--:--", 62, WHITE, Typeface.BOLD);
         clock.setLetterSpacing(0.03f);
         content.addView(clock);
@@ -178,10 +197,6 @@ public class MainActivity extends Activity {
         actions1.setOrientation(LinearLayout.HORIZONTAL);
         actions1.setGravity(Gravity.CENTER);
         actions1.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-
-        TextView basPlatform = pill("BAS Platform", true);
-        basPlatform.setOnClickListener(v -> openBasPlatformSecurely());
-        actions1.addView(basPlatform);
 
         TextView settings = pill("الإعدادات", false);
         settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
