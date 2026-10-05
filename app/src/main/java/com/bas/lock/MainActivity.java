@@ -151,7 +151,7 @@ public class MainActivity extends Activity {
         lockShortcutRow.setGravity(Gravity.LEFT);
         lockShortcutRow.setPadding(0, dp(2), 0, dp(4));
         TextView topLock = pill("BAS Lock Screen", false);
-        topLock.setOnClickListener(v -> resetLockHome());
+        topLock.setOnClickListener(v -> requestSecureExit());
         lockShortcutRow.addView(topLock);
         content.addView(lockShortcutRow, new LinearLayout.LayoutParams(-1, -2));
 
@@ -608,15 +608,6 @@ public class MainActivity extends Activity {
             }
             return false;
         });
-    }
-
-    private void resetLockHome() {
-        expandedApps.clear();
-        safeRefreshAll();
-        if (mainScroll != null) {
-            mainScroll.post(() -> mainScroll.smoothScrollTo(0, 0));
-        }
-        Toast.makeText(this, "BAS Lock Screen", Toast.LENGTH_SHORT).show();
     }
 
     private void openClockApp() {
