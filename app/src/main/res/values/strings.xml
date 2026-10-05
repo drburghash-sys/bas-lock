@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">BAS Lock</string>
+    <string name="notification_listener_label">BAS Lock — قراءة الإشعارات</string>
+    <string name="notification_listener_desc">يستخدم BAS Lock صلاحية الوصول إلى الإشعارات لعرض ملخصات الإشعارات على لوحة شاشة القفل. لا يرسل محتوى الإشعارات إلى الإنترنت.</string>
+</resources>
