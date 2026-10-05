@@ -132,26 +132,29 @@ public class MainActivity extends Activity {
 
         LinearLayout topNav = new LinearLayout(this);
         topNav.setOrientation(LinearLayout.HORIZONTAL);
-        topNav.setGravity(Gravity.CENTER);
+        topNav.setGravity(Gravity.RIGHT);
         topNav.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        topNav.setPadding(0, 0, 0, dp(14));
+        topNav.setPadding(0, 0, 0, dp(8));
 
         TextView topPlatform = pill("BAS Platform", true);
         topPlatform.setOnClickListener(v -> openBasPlatformSecurely());
         topNav.addView(topPlatform);
-
-        TextView topLock = pill("BAS Lock Screen", false);
-        topLock.setOnClickListener(v -> {
-            safeRefreshAll();
-            scrollToTop();
-        });
-        topNav.addView(topLock);
-
-        content.addView(topNav);
+        content.addView(topNav, new LinearLayout.LayoutParams(-1, -2));
 
         clock = tv("--:--", 62, WHITE, Typeface.BOLD);
         clock.setLetterSpacing(0.03f);
+        clock.setOnClickListener(v -> openClockApp());
         content.addView(clock);
+
+        LinearLayout lockShortcutRow = new LinearLayout(this);
+        lockShortcutRow.setOrientation(LinearLayout.HORIZONTAL);
+        lockShortcutRow.setGravity(Gravity.LEFT);
+        lockShortcutRow.setPadding(0, dp(2), 0, dp(4));
+        TextView topLock = pill("BAS Lock Screen", false);
+        topLock.setOnClickListener(v -> resetLockHome());
+        lockShortcutRow.addView(topLock);
+        content.addView(lockShortcutRow, new LinearLayout.LayoutParams(-1, -2));
+
         dateLine = tv("", 17, MUTED, Typeface.NORMAL); content.addView(dateLine);
         hijriLine = tv("", 15, GOLD, Typeface.BOLD); content.addView(hijriLine);
 
@@ -607,6 +610,29 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void resetLockHome() {
+        expandedApps.clear();
+        safeRefreshAll();
+        if (mainScroll != null) {
+            mainScroll.post(() -> mainScroll.smoothScrollTo(0, 0));
+        }
+        Toast.makeText(this, "BAS Lock Screen", Toast.LENGTH_SHORT).show();
+    }
+
+    private void openClockApp() {
+        try {
+            Intent i = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CLOCK);
+            startActivity(i);
+            return;
+        } catch (Exception ignored) {}
+        try {
+            Intent i = new Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS);
+            startActivity(i);
+        } catch (Exception e) {
+            Toast.makeText(this, "تعذر فتح تطبيق الساعة", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private boolean use24Hour() {
         return getSharedPreferences("bas_lock_settings", MODE_PRIVATE).getBoolean("use_24h", true);
     }
@@ -775,7 +801,7 @@ public class MainActivity extends Activity {
     }
 
     private TextView pill(String text, boolean gold) {
-        TextView v = tv(text, 13, gold ? NAVY : WHITE, Typeface.BOLD); v.setGravity(Gravity.CENTER); v.setPadding(dp(14), dp(10), dp(14), dp(10));
+        TextView v = tv(text, 13, WHITE, Typeface.BOLD); v.setGravity(Gravity.CENTER); v.setPadding(dp(14), dp(10), dp(14), dp(10));
         GradientDrawable g = new GradientDrawable();
         g.setCornerRadius(dp(18));
         int buttonAlpha = prefPercent("button_alpha", 28);
@@ -785,9 +811,22 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.setMargins(dp(5),0,dp(5),0); v.setLayoutParams(p); return v;
     }
 
+    private int userTextColor() {
+        String raw = getSharedPreferences("bas_lock_settings", MODE_PRIVATE)
+                .getString("text_color", "#FFFDF8");
+        try { return Color.parseColor(raw); }
+        catch (Exception e) { return WHITE; }
+    }
+
     private TextView tv(String s, int sp, int color, int style) {
-        TextView v = new TextView(this); v.setText(s); v.setTextSize(sp); v.setTextColor(color); v.setTypeface(Typeface.create("sans", style));
-        v.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG_RTL); return v;
+        TextView v = new TextView(this);
+        v.setText(s);
+        v.setTextSize(sp);
+        int actual = (color == WHITE || color == MUTED) ? userTextColor() : color;
+        v.setTextColor(actual);
+        v.setTypeface(Typeface.create("sans", style));
+        v.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG_RTL);
+        return v;
     }
 
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
