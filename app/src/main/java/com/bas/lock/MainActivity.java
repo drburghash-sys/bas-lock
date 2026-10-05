@@ -9,6 +9,8 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.location.Location;
 import android.location.LocationManager;
+import android.hardware.biometrics.BiometricPrompt;
+import android.net.Uri;
 import android.os.*;
 import android.provider.Settings;
 import android.text.TextUtils;
@@ -23,6 +25,8 @@ import java.util.*;
 public class MainActivity extends Activity {
     private final Handler timer = new Handler(Looper.getMainLooper());
     private LinearLayout content, prayerRow, notificationsBox;
+    private ImageView wallpaper;
+    private View backgroundShade;
     private TextView clock, dateLine, hijriLine, nextPrayer, notificationSummary;
     private PrayerTimesCalculator.Times times;
     private double lat = 28.3838, lon = 36.5662; // Tabuk fallback
@@ -67,7 +71,12 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        applyBackground();
         safeRefreshAll();
+    }
+
+    @Override public void onBackPressed() {
+        requestSecureExit();
     }
 
     private final Runnable tick = new Runnable() {
@@ -78,12 +87,25 @@ public class MainActivity extends Activity {
     };
 
     private void buildUi() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
+        FrameLayout page = new FrameLayout(this);
         GradientDrawable bg = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
                 new int[]{Color.rgb(3,15,31), NAVY2, Color.rgb(7,76,88)});
-        scroll.setBackground(bg);
+        page.setBackground(bg);
+
+        wallpaper = new ImageView(this);
+        wallpaper.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        wallpaper.setVisibility(View.GONE);
+        page.addView(wallpaper, new FrameLayout.LayoutParams(-1, -1));
+
+        backgroundShade = new View(this);
+        backgroundShade.setBackgroundColor(Color.TRANSPARENT);
+        page.addView(backgroundShade, new FrameLayout.LayoutParams(-1, -1));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(Color.TRANSPARENT);
+        page.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
 
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -136,11 +158,11 @@ public class MainActivity extends Activity {
 
         Space s3 = new Space(this); content.addView(s3, new LinearLayout.LayoutParams(1, dp(16)));
 
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL); actions.setGravity(Gravity.CENTER); actions.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        LinearLayout actions1 = new LinearLayout(this);
+        actions1.setOrientation(LinearLayout.HORIZONTAL); actions1.setGravity(Gravity.CENTER); actions1.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         TextView access = pill("تفعيل الإشعارات", true);
         access.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)));
-        actions.addView(access);
+        actions1.addView(access);
         TextView auto = pill("الظهور عند القفل", false);
         boolean autoOn = getSharedPreferences("bas_lock_settings", MODE_PRIVATE).getBoolean("auto_show", true);
         boolean lockReady = Settings.canDrawOverlays(this) && hasNotificationAccess();
@@ -153,23 +175,35 @@ public class MainActivity extends Activity {
                 toggleAutoShow(auto);
             }
         });
-        actions.addView(auto);
+        actions1.addView(auto);
+        content.addView(actions1);
+
+        LinearLayout actions2 = new LinearLayout(this);
+        actions2.setOrientation(LinearLayout.HORIZONTAL); actions2.setGravity(Gravity.CENTER); actions2.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        actions2.setPadding(0, dp(8), 0, 0);
+
+        TextView close = pill("إغلاق BAS Lock", false);
+        close.setOnClickListener(v -> requestSecureExit());
+        actions2.addView(close);
+
         TextView location = pill("تحديث الموقع", false);
         location.setOnClickListener(v -> {
             refreshLocation();
             Toast.makeText(this, "سيتم استخدام موقع الجهاز بعد منح الإذن، وإلا فسيبقى تبوك افتراضيًا.", Toast.LENGTH_SHORT).show();
         });
-        actions.addView(location);
+        actions2.addView(location);
+
         TextView settings = pill("الإعدادات", false);
         settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
-        actions.addView(settings);
-        content.addView(actions);
+        actions2.addView(settings);
+        content.addView(actions2);
 
-        TextView note = tv("يظل قفل سامسونج والبصمة والـ PIN كما هي. BAS Lock يعرض لوحة معلومات فوق شاشة القفل عند سماح النظام بذلك.", 12, MUTED, Typeface.NORMAL);
+        TextView note = tv("عند إغلاق BAS Lock من شاشة القفل سيطلب النظام البصمة أو وسيلة قفل الجهاز، ثم تظهر الشاشة الرئيسية مباشرة.", 12, MUTED, Typeface.NORMAL);
         note.setGravity(Gravity.CENTER); note.setPadding(dp(12), dp(12), dp(12), 0);
         content.addView(note);
 
-        setContentView(scroll);
+        setContentView(page);
+        applyBackground();
     }
 
     private void refreshAll() {
@@ -335,6 +369,12 @@ public class MainActivity extends Activity {
             if (locked || !showUnlockedText) summary = TextUtils.isEmpty(x.title) ? "إشعار جديد" : x.title;
             else summary = TextUtils.isEmpty(x.text) ? x.title : (TextUtils.isEmpty(x.title) ? x.text : x.title + " — " + x.text);
             TextView body = tv(summary, 13, MUTED, Typeface.NORMAL); body.setGravity(Gravity.RIGHT); body.setMaxLines(2); row.addView(body);
+
+            TextView manage = pill("إعدادات إشعارات التطبيق", false);
+            manage.setTextSize(11);
+            manage.setOnClickListener(v -> openAppNotificationSettings(x.pkg));
+            row.addView(manage);
+
             row.setOnClickListener(v -> {
                 try {
                     Intent launch = getPackageManager().getLaunchIntentForPackage(x.pkg);
@@ -350,6 +390,89 @@ public class MainActivity extends Activity {
         }
     }
 
+
+
+    private void applyBackground() {
+        if (wallpaper == null || backgroundShade == null) return;
+        String saved = getSharedPreferences("bas_lock_settings", MODE_PRIVATE).getString("background_uri", "");
+        if (TextUtils.isEmpty(saved)) {
+            wallpaper.setImageDrawable(null);
+            wallpaper.setVisibility(View.GONE);
+            backgroundShade.setBackgroundColor(Color.TRANSPARENT);
+            return;
+        }
+        try {
+            wallpaper.setImageURI(Uri.parse(saved));
+            wallpaper.setVisibility(View.VISIBLE);
+            backgroundShade.setBackgroundColor(Color.argb(145, 2, 14, 30));
+        } catch (Exception e) {
+            wallpaper.setImageDrawable(null);
+            wallpaper.setVisibility(View.GONE);
+            backgroundShade.setBackgroundColor(Color.TRANSPARENT);
+        }
+    }
+
+    private void openAppNotificationSettings(String pkg) {
+        try {
+            Intent i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+            i.putExtra(Settings.EXTRA_APP_PACKAGE, pkg);
+            startActivity(i);
+        } catch (Exception e) {
+            try {
+                Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg));
+                startActivity(i);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void requestSecureExit() {
+        KeyguardManager km = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        if (km != null && km.isKeyguardLocked()) {
+            try {
+                km.requestDismissKeyguard(this, new KeyguardManager.KeyguardDismissCallback() {
+                    @Override public void onDismissSucceeded() {
+                        finishAndRemoveTask();
+                    }
+                    @Override public void onDismissError() {
+                        Toast.makeText(MainActivity.this, "تعذر فتح قفل الجهاز", Toast.LENGTH_SHORT).show();
+                    }
+                });
+                return;
+            } catch (Exception ignored) {}
+        }
+        requestBiometricExit();
+    }
+
+    private void requestBiometricExit() {
+        if (Build.VERSION.SDK_INT < 28) {
+            finishAndRemoveTask();
+            return;
+        }
+        try {
+            BiometricPrompt prompt = new BiometricPrompt.Builder(this)
+                    .setTitle("إغلاق BAS Lock")
+                    .setSubtitle("أكد بالبصمة للمتابعة")
+                    .setNegativeButton("إلغاء", getMainExecutor(), (dialog, which) -> {})
+                    .build();
+            CancellationSignal signal = new CancellationSignal();
+            prompt.authenticate(signal, getMainExecutor(), new BiometricPrompt.AuthenticationCallback() {
+                @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                    super.onAuthenticationSucceeded(result);
+                    finishAndRemoveTask();
+                }
+                @Override public void onAuthenticationError(int errorCode, CharSequence errString) {
+                    super.onAuthenticationError(errorCode, errString);
+                    if (errorCode != BiometricPrompt.BIOMETRIC_ERROR_CANCELED &&
+                            errorCode != BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED &&
+                            errorCode != BiometricPrompt.BIOMETRIC_ERROR_NEGATIVE_BUTTON) {
+                        Toast.makeText(MainActivity.this, "تعذر استخدام البصمة: " + errString, Toast.LENGTH_SHORT).show();
+                    }
+                }
+            });
+        } catch (Exception e) {
+            Toast.makeText(this, "البصمة غير متاحة. تأكد من تسجيل بصمة وقفل شاشة آمن.", Toast.LENGTH_LONG).show();
+        }
+    }
 
     private boolean hasNotificationAccess() {
         try {
