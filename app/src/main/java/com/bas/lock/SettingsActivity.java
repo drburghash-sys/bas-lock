@@ -13,6 +13,7 @@ import android.view.*;
 import android.widget.*;
 
 public class SettingsActivity extends Activity {
+    private static final int REQ_BACKGROUND = 51;
     private SharedPreferences prefs;
     private LinearLayout root;
     private static final int NAVY = Color.rgb(6,26,51), GOLD = Color.rgb(228,184,95), WHITE = Color.rgb(255,253,248), MUTED = Color.rgb(182,199,217);
@@ -56,6 +57,10 @@ public class SettingsActivity extends Activity {
         root.addView(reset);
 
         root.addView(space(18));
+        root.addView(sectionTitle("المظهر"));
+        addBackgroundControls();
+
+        root.addView(space(18));
         root.addView(sectionTitle("الخصوصية والسلوك"));
 
         addPermissionCard();
@@ -75,6 +80,50 @@ public class SettingsActivity extends Activity {
         setContentView(scroll);
     }
 
+
+
+    private void addBackgroundControls() {
+        TextView choose = button("اختيار خلفية من الصور");
+        choose.setOnClickListener(v -> {
+            try {
+                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("image/*");
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                startActivityForResult(i, REQ_BACKGROUND);
+            } catch (Exception e) {
+                Toast.makeText(this, "تعذر فتح الصور", Toast.LENGTH_SHORT).show();
+            }
+        });
+        root.addView(choose);
+
+        TextView resetBg = button("استعادة الخلفية الافتراضية");
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1,-2);
+        rp.setMargins(0,dp(7),0,0);
+        resetBg.setLayoutParams(rp);
+        resetBg.setOnClickListener(v -> {
+            prefs.edit().remove("background_uri").apply();
+            Toast.makeText(this, "تمت استعادة الخلفية الافتراضية", Toast.LENGTH_SHORT).show();
+        });
+        root.addView(resetBg);
+
+        TextView note = tv("يمكن اختيار أي صورة من الجهاز. يضيف BAS Lock تعتيماً خفيفاً فوقها حتى تبقى الساعة ومواقيت الصلاة والإشعارات واضحة.", 11, MUTED, Typeface.NORMAL);
+        note.setPadding(0,dp(7),0,0);
+        root.addView(note);
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_BACKGROUND && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            Uri uri = data.getData();
+            try {
+                final int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                getContentResolver().takePersistableUriPermission(uri, flags & Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) {}
+            prefs.edit().putString("background_uri", uri.toString()).apply();
+            Toast.makeText(this, "تم حفظ الخلفية", Toast.LENGTH_SHORT).show();
+        }
+    }
 
     private void addPermissionCard() {
         boolean notif = hasNotificationAccess();
