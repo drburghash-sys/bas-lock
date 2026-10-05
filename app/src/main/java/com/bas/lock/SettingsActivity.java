@@ -58,6 +58,8 @@ public class SettingsActivity extends Activity {
 
         root.addView(space(18));
         root.addView(sectionTitle("المظهر"));
+        addTimeFormatControl();
+        root.addView(space(10));
         addBackgroundControls();
 
         root.addView(space(18));
@@ -81,6 +83,27 @@ public class SettingsActivity extends Activity {
     }
 
 
+
+    private void addTimeFormatControl() {
+        LinearLayout box = cardRow();
+        TextView label = tv("نظام عرض الساعة", 16, WHITE, Typeface.BOLD);
+        box.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+
+        boolean use24 = prefs.getBoolean("use_24h", true);
+        TextView state = smallButton(use24 ? "٢٤ ساعة" : "١٢ ساعة");
+        state.setOnClickListener(v -> {
+            boolean next = !prefs.getBoolean("use_24h", true);
+            prefs.edit().putBoolean("use_24h", next).apply();
+            state.setText(next ? "٢٤ ساعة" : "١٢ ساعة");
+            Toast.makeText(this, "سيطبق النظام على الساعة ومواقيت الصلاة", Toast.LENGTH_SHORT).show();
+        });
+        box.addView(state);
+        root.addView(box);
+
+        TextView note = tv("يتغير تنسيق الساعة الرئيسية وجميع مواقيت الصلاة معًا. نظام ١٢ ساعة يعرض ص/م.", 11, MUTED, Typeface.NORMAL);
+        note.setPadding(0, dp(6), 0, 0);
+        root.addView(note);
+    }
 
     private void addBackgroundControls() {
         TextView choose = button("اختيار خلفية من الصور");
