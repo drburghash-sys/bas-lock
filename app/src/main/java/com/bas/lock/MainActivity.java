@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.Drawable;
 import android.location.Location;
 import android.location.LocationManager;
 import android.hardware.biometrics.BiometricPrompt;
@@ -25,6 +26,8 @@ import java.util.*;
 public class MainActivity extends Activity {
     private final Handler timer = new Handler(Looper.getMainLooper());
     private LinearLayout content, prayerRow, notificationsBox;
+    private ScrollView mainScroll;
+    private final Set<String> expandedApps = new HashSet<>();
     private ImageView wallpaper;
     private View backgroundShade;
     private TextView clock, dateLine, hijriLine, nextPrayer, notificationSummary;
@@ -73,6 +76,19 @@ public class MainActivity extends Activity {
         super.onResume();
         applyBackground();
         safeRefreshAll();
+        scrollToTop();
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        scrollToTop();
+    }
+
+    private void scrollToTop() {
+        if (mainScroll != null) {
+            mainScroll.post(() -> mainScroll.scrollTo(0, 0));
+        }
     }
 
     @Override public void onBackPressed() {
@@ -102,17 +118,17 @@ public class MainActivity extends Activity {
         backgroundShade.setBackgroundColor(Color.TRANSPARENT);
         page.addView(backgroundShade, new FrameLayout.LayoutParams(-1, -1));
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(Color.TRANSPARENT);
-        page.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+        mainScroll = new ScrollView(this);
+        mainScroll.setFillViewport(true);
+        mainScroll.setBackgroundColor(Color.TRANSPARENT);
+        page.addView(mainScroll, new FrameLayout.LayoutParams(-1, -1));
 
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setGravity(Gravity.CENTER_HORIZONTAL);
         content.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         content.setPadding(dp(18), dp(44), dp(18), dp(28));
-        scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
+        mainScroll.addView(content, new ScrollView.LayoutParams(-1, -2));
 
         clock = tv("--:--", 62, WHITE, Typeface.BOLD);
         clock.setLetterSpacing(0.03f);
@@ -122,7 +138,7 @@ public class MainActivity extends Activity {
 
         Space s1 = new Space(this); content.addView(s1, new LinearLayout.LayoutParams(1, dp(18)));
 
-        LinearLayout prayerCard = card();
+        LinearLayout prayerCard = card("prayer_alpha", 60);
         TextView pTitle = tv("مواقيت الصلاة", 19, WHITE, Typeface.BOLD);
         pTitle.setGravity(Gravity.RIGHT);
         prayerCard.addView(pTitle);
@@ -139,7 +155,7 @@ public class MainActivity extends Activity {
 
         Space s2 = new Space(this); content.addView(s2, new LinearLayout.LayoutParams(1, dp(14)));
 
-        LinearLayout nCard = card();
+        LinearLayout nCard = card("notification_alpha", 35);
         LinearLayout nHead = new LinearLayout(this); nHead.setOrientation(LinearLayout.HORIZONTAL);
         nHead.setGravity(Gravity.CENTER_VERTICAL); nHead.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         TextView nTitle = tv("الإشعارات", 19, WHITE, Typeface.BOLD);
@@ -358,55 +374,223 @@ public class MainActivity extends Activity {
     private void refreshNotifications() {
         notificationsBox.removeAllViews();
         List<NotificationStore.Item> items = NotificationStore.load(this);
+
         int important = 0, review = 0, other = 0;
         for (NotificationStore.Item x : items) {
             if (x.level >= 3) important++; else if (x.level == 2) review++; else other++;
         }
-        notificationSummary.setText("مهم " + arabicDigits(String.valueOf(important)) + "  •  مراجعة " + arabicDigits(String.valueOf(review)) + "  •  أخرى " + arabicDigits(String.valueOf(other)));
+        notificationSummary.setText("مهم " + arabicDigits(String.valueOf(important)) +
+                "  •  مراجعة " + arabicDigits(String.valueOf(review)) +
+                "  •  أخرى " + arabicDigits(String.valueOf(other)));
+
+        if (items.isEmpty()) {
+            TextView none = tv("لا توجد إشعارات محفوظة. فعّل صلاحية الوصول إلى الإشعارات من الزر أدناه.", 13, MUTED, Typeface.NORMAL);
+            none.setGravity(Gravity.CENTER);
+            none.setPadding(dp(8), dp(16), dp(8), dp(8));
+            notificationsBox.addView(none);
+            return;
+        }
+
         KeyguardManager km = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
         boolean locked = km != null && km.isDeviceLocked();
-        boolean showUnlockedText = getSharedPreferences("bas_lock_settings", MODE_PRIVATE).getBoolean("show_text_unlocked", true);
-        int shown = 0;
+        boolean showUnlockedText = getSharedPreferences("bas_lock_settings", MODE_PRIVATE)
+                .getBoolean("show_text_unlocked", true);
+
+        LinkedHashMap<String, List<NotificationStore.Item>> groups = new LinkedHashMap<>();
         for (NotificationStore.Item x : items) {
-            if (shown >= 7) break;
-            LinearLayout row = new LinearLayout(this); row.setOrientation(LinearLayout.VERTICAL);
-            row.setPadding(dp(10), dp(9), dp(10), dp(9));
-            GradientDrawable gd = new GradientDrawable(); gd.setCornerRadius(dp(14));
-            gd.setColor(Color.argb(75, 255, 255, 255));
-            gd.setStroke(dp(1), x.level >= 3 ? GOLD : Color.argb(60,255,255,255));
-            row.setBackground(gd);
-            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2); rp.setMargins(0, dp(7), 0, 0);
-            row.setLayoutParams(rp);
+            groups.computeIfAbsent(x.pkg, k -> new ArrayList<>()).add(x);
+        }
 
-            String dot = x.level >= 3 ? "● " : x.level == 2 ? "• " : "";
-            TextView app = tv(dot + (TextUtils.isEmpty(x.app) ? x.pkg : x.app), 14, x.level >= 3 ? GOLD : WHITE, Typeface.BOLD);
-            app.setGravity(Gravity.RIGHT); row.addView(app);
-            String summary;
-            if (locked || !showUnlockedText) summary = TextUtils.isEmpty(x.title) ? "إشعار جديد" : x.title;
-            else summary = TextUtils.isEmpty(x.text) ? x.title : (TextUtils.isEmpty(x.title) ? x.text : x.title + " — " + x.text);
-            TextView body = tv(summary, 13, MUTED, Typeface.NORMAL); body.setGravity(Gravity.RIGHT); body.setMaxLines(2); row.addView(body);
+        for (Map.Entry<String, List<NotificationStore.Item>> entry : groups.entrySet()) {
+            String pkg = entry.getKey();
+            List<NotificationStore.Item> groupItems = entry.getValue();
+            NotificationStore.Item newest = groupItems.get(0);
+            boolean expanded = expandedApps.contains(pkg);
 
-            TextView manage = pill("إعدادات إشعارات التطبيق", false);
-            manage.setTextSize(11);
-            manage.setOnClickListener(v -> openAppNotificationSettings(x.pkg));
-            row.addView(manage);
+            LinearLayout group = new LinearLayout(this);
+            group.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, -2);
+            gp.setMargins(0, dp(8), 0, 0);
+            group.setLayoutParams(gp);
 
-            row.setOnClickListener(v -> {
-                try {
-                    Intent launch = getPackageManager().getLaunchIntentForPackage(x.pkg);
-                    if (launch != null) startActivity(launch);
-                } catch (Exception ignored) {}
+            LinearLayout header = new LinearLayout(this);
+            header.setOrientation(LinearLayout.HORIZONTAL);
+            header.setGravity(Gravity.CENTER_VERTICAL);
+            header.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+            header.setPadding(dp(11), dp(9), dp(11), dp(9));
+
+            GradientDrawable hg = new GradientDrawable();
+            hg.setCornerRadius(dp(16));
+            hg.setColor(alphaColor(Color.WHITE, prefPercent("notification_alpha", 35)));
+            hg.setStroke(dp(1), newest.level >= 3 ? GOLD : Color.argb(80,255,255,255));
+            header.setBackground(hg);
+
+            ImageView icon = new ImageView(this);
+            try {
+                Drawable d = getPackageManager().getApplicationIcon(pkg);
+                icon.setImageDrawable(d);
+            } catch (Exception ignored) {}
+            LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(38), dp(38));
+            ip.setMargins(dp(8), 0, 0, 0);
+            header.addView(icon, ip);
+
+            LinearLayout titleBox = new LinearLayout(this);
+            titleBox.setOrientation(LinearLayout.VERTICAL);
+            TextView appName = tv(TextUtils.isEmpty(newest.app) ? pkg : newest.app,
+                    15, newest.level >= 3 ? GOLD : WHITE, Typeface.BOLD);
+            appName.setGravity(Gravity.RIGHT);
+            titleBox.addView(appName);
+
+            String countText = groupItems.size() == 1
+                    ? "إشعار واحد"
+                    : arabicDigits(String.valueOf(groupItems.size())) + " إشعارات";
+            TextView count = tv(countText + (expanded ? "  ▲" : "  ▼"), 12, MUTED, Typeface.NORMAL);
+            count.setGravity(Gravity.RIGHT);
+            titleBox.addView(count);
+            header.addView(titleBox, new LinearLayout.LayoutParams(0, -2, 1));
+
+            TextView clearAll = pill("مسح الكل", false);
+            clearAll.setTextSize(10);
+            clearAll.setOnClickListener(v -> dismissPackage(pkg));
+            header.addView(clearAll);
+
+            header.setOnClickListener(v -> {
+                if (expandedApps.contains(pkg)) expandedApps.remove(pkg);
+                else expandedApps.add(pkg);
+                refreshNotifications();
             });
-            notificationsBox.addView(row);
-            shown++;
+            attachSwipeDismiss(header, () -> dismissPackage(pkg));
+            group.addView(header);
+
+            if (expanded) {
+                for (NotificationStore.Item x : groupItems) {
+                    LinearLayout row = buildNotificationRow(x, locked, showUnlockedText);
+                    attachSwipeDismiss(row, () -> dismissNotification(x.key));
+                    group.addView(row);
+                }
+            }
+
+            notificationsBox.addView(group);
         }
-        if (shown == 0) {
-            TextView none = tv("لا توجد إشعارات محفوظة. فعّل صلاحية الوصول إلى الإشعارات من الزر أدناه.", 13, MUTED, Typeface.NORMAL);
-            none.setGravity(Gravity.CENTER); none.setPadding(dp(8), dp(16), dp(8), dp(8)); notificationsBox.addView(none);
-        }
+
+        TextView hint = tv("اضغط على التطبيق لعرض إشعاراته. اسحب إشعارًا لإغلاقه، أو اسحب مجموعة التطبيق لإغلاق جميع إشعاراته.", 11, MUTED, Typeface.NORMAL);
+        hint.setGravity(Gravity.CENTER);
+        hint.setPadding(dp(8), dp(12), dp(8), dp(3));
+        notificationsBox.addView(hint);
     }
 
+    private LinearLayout buildNotificationRow(NotificationStore.Item x, boolean locked, boolean showUnlockedText) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(dp(12), dp(9), dp(12), dp(9));
 
+        GradientDrawable gd = new GradientDrawable();
+        gd.setCornerRadius(dp(14));
+        int alpha = Math.max(18, prefPercent("notification_alpha", 35) - 8);
+        gd.setColor(alphaColor(Color.WHITE, alpha));
+        gd.setStroke(dp(1), x.level >= 3 ? GOLD : Color.argb(55,255,255,255));
+        row.setBackground(gd);
+
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
+        rp.setMargins(dp(12), dp(6), dp(12), 0);
+        row.setLayoutParams(rp);
+
+        String summary;
+        if (locked || !showUnlockedText) {
+            summary = TextUtils.isEmpty(x.title) ? "إشعار جديد" : x.title;
+        } else {
+            summary = TextUtils.isEmpty(x.text) ? x.title :
+                    (TextUtils.isEmpty(x.title) ? x.text : x.title + " — " + x.text);
+        }
+
+        TextView body = tv(summary, 13, WHITE, Typeface.NORMAL);
+        body.setGravity(Gravity.RIGHT);
+        body.setMaxLines(3);
+        row.addView(body);
+
+        LinearLayout controls = new LinearLayout(this);
+        controls.setOrientation(LinearLayout.HORIZONTAL);
+        controls.setGravity(Gravity.RIGHT);
+        controls.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        controls.setPadding(0, dp(6), 0, 0);
+
+        TextView manage = pill("إعدادات الإشعارات", false);
+        manage.setTextSize(10);
+        manage.setOnClickListener(v -> openAppNotificationSettings(x.pkg));
+        controls.addView(manage);
+
+        TextView closeOne = pill("إغلاق", false);
+        closeOne.setTextSize(10);
+        closeOne.setOnClickListener(v -> dismissNotification(x.key));
+        controls.addView(closeOne);
+
+        row.addView(controls);
+
+        row.setOnClickListener(v -> {
+            try {
+                Intent launch = getPackageManager().getLaunchIntentForPackage(x.pkg);
+                if (launch != null) startActivity(launch);
+            } catch (Exception ignored) {}
+        });
+
+        return row;
+    }
+
+    private void dismissNotification(String key) {
+        NotificationStore.remove(this, key);
+        Intent i = new Intent("com.bas.lock.DISMISS_KEY")
+                .setPackage(getPackageName())
+                .putExtra("key", key);
+        sendBroadcast(i);
+        refreshNotifications();
+    }
+
+    private void dismissPackage(String pkg) {
+        NotificationStore.removePackage(this, pkg);
+        expandedApps.remove(pkg);
+        Intent i = new Intent("com.bas.lock.DISMISS_PACKAGE")
+                .setPackage(getPackageName())
+                .putExtra("pkg", pkg);
+        sendBroadcast(i);
+        refreshNotifications();
+    }
+
+    private void attachSwipeDismiss(View view, Runnable onDismiss) {
+        final float[] downX = new float[1];
+        final float[] downY = new float[1];
+        view.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    downX[0] = event.getRawX();
+                    downY[0] = event.getRawY();
+                    v.setTranslationX(0f);
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    float dx = event.getRawX() - downX[0];
+                    float dy = event.getRawY() - downY[0];
+                    if (Math.abs(dx) > Math.abs(dy)) {
+                        v.setTranslationX(dx * 0.65f);
+                        v.setAlpha(Math.max(0.35f, 1f - Math.abs(dx) / Math.max(1f, v.getWidth())));
+                    }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                    float totalDx = event.getRawX() - downX[0];
+                    float totalDy = event.getRawY() - downY[0];
+                    if (Math.abs(totalDx) > dp(90) && Math.abs(totalDx) > Math.abs(totalDy) * 1.2f) {
+                        v.animate().translationX(totalDx > 0 ? v.getWidth() : -v.getWidth())
+                                .alpha(0f).setDuration(140).withEndAction(onDismiss).start();
+                    } else {
+                        v.animate().translationX(0f).alpha(1f).setDuration(120).start();
+                        if (Math.abs(totalDx) < dp(12) && Math.abs(totalDy) < dp(12)) v.performClick();
+                    }
+                    return true;
+                case MotionEvent.ACTION_CANCEL:
+                    v.animate().translationX(0f).alpha(1f).setDuration(120).start();
+                    return true;
+            }
+            return false;
+        });
+    }
 
     private boolean use24Hour() {
         return getSharedPreferences("bas_lock_settings", MODE_PRIVATE).getBoolean("use_24h", true);
@@ -553,16 +737,36 @@ public class MainActivity extends Activity {
         v.setText(next ? "الظهور عند القفل ✓" : "الظهور عند القفل");
     }
 
-    private LinearLayout card() {
-        LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.setPadding(dp(14), dp(14), dp(14), dp(14));
-        GradientDrawable g = new GradientDrawable(); g.setCornerRadius(dp(24)); g.setColor(Color.argb(150, 5, 27, 50));
-        g.setStroke(dp(1), Color.argb(90, 228, 184, 95)); l.setBackground(g); return l;
+    private LinearLayout card(String alphaKey, int defaultPercent) {
+        LinearLayout l = new LinearLayout(this);
+        l.setOrientation(LinearLayout.VERTICAL);
+        l.setPadding(dp(14), dp(14), dp(14), dp(14));
+        GradientDrawable g = new GradientDrawable();
+        g.setCornerRadius(dp(24));
+        g.setColor(alphaColor(Color.rgb(5, 27, 50), prefPercent(alphaKey, defaultPercent)));
+        g.setStroke(dp(1), Color.argb(90, 228, 184, 95));
+        l.setBackground(g);
+        return l;
+    }
+
+    private int prefPercent(String key, int def) {
+        return Math.max(0, Math.min(100,
+                getSharedPreferences("bas_lock_settings", MODE_PRIVATE).getInt(key, def)));
+    }
+
+    private int alphaColor(int color, int percent) {
+        int alpha = Math.round(255f * Math.max(0, Math.min(100, percent)) / 100f);
+        return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color));
     }
 
     private TextView pill(String text, boolean gold) {
         TextView v = tv(text, 13, gold ? NAVY : WHITE, Typeface.BOLD); v.setGravity(Gravity.CENTER); v.setPadding(dp(14), dp(10), dp(14), dp(10));
-        GradientDrawable g = new GradientDrawable(); g.setCornerRadius(dp(18)); g.setColor(gold ? GOLD : Color.argb(55,255,255,255));
-        g.setStroke(dp(1), gold ? GOLD : Color.argb(70,255,255,255)); v.setBackground(g);
+        GradientDrawable g = new GradientDrawable();
+        g.setCornerRadius(dp(18));
+        int buttonAlpha = prefPercent("button_alpha", 28);
+        g.setColor(gold ? alphaColor(GOLD, buttonAlpha) : alphaColor(Color.WHITE, buttonAlpha));
+        g.setStroke(dp(1), gold ? GOLD : Color.argb(70,255,255,255));
+        v.setBackground(g);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.setMargins(dp(5),0,dp(5),0); v.setLayoutParams(p); return v;
     }
 
