@@ -59,6 +59,11 @@ public class SettingsActivity extends Activity {
         root.addView(space(18));
         root.addView(sectionTitle("المظهر"));
         addTimeFormatControl();
+        root.addView(space(12));
+        root.addView(sectionTitle("الشفافية"));
+        addTransparencyControl("مواقيت الصلاة", "prayer_alpha", 60);
+        addTransparencyControl("الإشعارات", "notification_alpha", 35);
+        addTransparencyControl("الأزرار", "button_alpha", 28);
         root.addView(space(10));
         addBackgroundControls();
 
@@ -103,6 +108,57 @@ public class SettingsActivity extends Activity {
         TextView note = tv("يتغير تنسيق الساعة الرئيسية وجميع مواقيت الصلاة معًا. نظام ١٢ ساعة يعرض ص/م.", 11, MUTED, Typeface.NORMAL);
         note.setPadding(0, dp(6), 0, 0);
         root.addView(note);
+    }
+
+    private void addTransparencyControl(String title, String key, int def) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(12), dp(9), dp(12), dp(9));
+
+        GradientDrawable g = new GradientDrawable();
+        g.setCornerRadius(dp(15));
+        g.setColor(Color.argb(55,255,255,255));
+        box.setBackground(g);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+
+        TextView label = tv(title, 14, WHITE, Typeface.BOLD);
+        top.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+
+        int current = prefs.getInt(key, def);
+        TextView value = tv(arabicDigits(current) + "%", 13, GOLD, Typeface.BOLD);
+        value.setGravity(Gravity.CENTER);
+        value.setMinWidth(dp(55));
+        top.addView(value);
+        box.addView(top);
+
+        SeekBar seek = new SeekBar(this);
+        seek.setMax(100);
+        seek.setProgress(current);
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                prefs.edit().putInt(key, progress).apply();
+                value.setText(arabicDigits(progress) + "%");
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+        box.addView(seek, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
+        p.setMargins(0, dp(6), 0, 0);
+        box.setLayoutParams(p);
+        root.addView(box);
+    }
+
+    private String arabicDigits(int n) {
+        return String.valueOf(n)
+                .replace('0','٠').replace('1','١').replace('2','٢').replace('3','٣')
+                .replace('4','٤').replace('5','٥').replace('6','٦').replace('7','٧')
+                .replace('8','٨').replace('9','٩');
     }
 
     private void addBackgroundControls() {
