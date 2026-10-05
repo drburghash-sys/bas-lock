@@ -60,6 +60,8 @@ public class SettingsActivity extends Activity {
         root.addView(sectionTitle("المظهر"));
         addTimeFormatControl();
         root.addView(space(12));
+        addTextColorControl();
+        root.addView(space(12));
         root.addView(sectionTitle("الشفافية"));
         addTransparencyControl("مواقيت الصلاة", "prayer_alpha", 60);
         addTransparencyControl("الإشعارات", "notification_alpha", 35);
@@ -108,6 +110,78 @@ public class SettingsActivity extends Activity {
         TextView note = tv("يتغير تنسيق الساعة الرئيسية وجميع مواقيت الصلاة معًا. نظام ١٢ ساعة يعرض ص/م.", 11, MUTED, Typeface.NORMAL);
         note.setPadding(0, dp(6), 0, 0);
         root.addView(note);
+    }
+
+    private void addTextColorControl() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(12), dp(10), dp(12), dp(10));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(15));
+        bg.setColor(Color.argb(55,255,255,255));
+        box.setBackground(bg);
+
+        TextView title = tv("لون النص", 15, WHITE, Typeface.BOLD);
+        box.addView(title);
+
+        LinearLayout presets = new LinearLayout(this);
+        presets.setOrientation(LinearLayout.HORIZONTAL);
+        presets.setGravity(Gravity.CENTER);
+        presets.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        presets.setPadding(0, dp(8), 0, dp(4));
+
+        addColorPreset(presets, "أبيض", "#FFFDF8");
+        addColorPreset(presets, "ذهبي", "#E4B85F");
+        addColorPreset(presets, "أسود", "#111111");
+        addColorPreset(presets, "سماوي", "#8FE8FF");
+        box.addView(presets);
+
+        LinearLayout custom = new LinearLayout(this);
+        custom.setOrientation(LinearLayout.HORIZONTAL);
+        custom.setGravity(Gravity.CENTER_VERTICAL);
+        custom.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+
+        EditText hex = new EditText(this);
+        hex.setHint("#FFFFFF");
+        hex.setSingleLine(true);
+        hex.setText(prefs.getString("text_color", "#FFFDF8"));
+        hex.setTextColor(WHITE);
+        hex.setHintTextColor(MUTED);
+        custom.addView(hex, new LinearLayout.LayoutParams(0, -2, 1));
+
+        TextView apply = smallButton("تطبيق");
+        apply.setOnClickListener(v -> {
+            String raw = hex.getText().toString().trim();
+            if (!raw.startsWith("#")) raw = "#" + raw;
+            try {
+                Color.parseColor(raw);
+                prefs.edit().putString("text_color", raw.toUpperCase()).apply();
+                Toast.makeText(this, "تم حفظ لون النص", Toast.LENGTH_SHORT).show();
+            } catch (Exception e) {
+                Toast.makeText(this, "اكتب اللون مثل #FFFFFF", Toast.LENGTH_SHORT).show();
+            }
+        });
+        custom.addView(apply);
+        box.addView(custom);
+
+        TextView note = tv("يطبق على الساعة والتاريخ ومواقيت الصلاة والنصوص والأزرار الأساسية. اللون الذهبي المميز يبقى للتنبيه والصلاة القادمة.", 11, MUTED, Typeface.NORMAL);
+        note.setPadding(0, dp(6), 0, 0);
+        box.addView(note);
+
+        root.addView(box);
+    }
+
+    private void addColorPreset(LinearLayout parent, String label, String hex) {
+        TextView b = smallButton(label);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1);
+        p.setMargins(dp(3),0,dp(3),0);
+        b.setLayoutParams(p);
+        b.setOnClickListener(v -> {
+            prefs.edit().putString("text_color", hex).apply();
+            Toast.makeText(this, "تم اختيار " + label, Toast.LENGTH_SHORT).show();
+            build();
+        });
+        parent.addView(b);
     }
 
     private void addTransparencyControl(String title, String key, int def) {
