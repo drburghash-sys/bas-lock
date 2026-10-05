@@ -143,8 +143,16 @@ public class MainActivity extends Activity {
         actions.addView(access);
         TextView auto = pill("الظهور عند القفل", false);
         boolean autoOn = getSharedPreferences("bas_lock_settings", MODE_PRIVATE).getBoolean("auto_show", true);
-        if (autoOn) auto.setText("الظهور عند القفل ✓");
-        auto.setOnClickListener(v -> toggleAutoShow(auto));
+        boolean lockReady = Settings.canDrawOverlays(this) && hasNotificationAccess();
+        if (autoOn && lockReady) auto.setText("الظهور عند القفل ✓");
+        else if (autoOn) auto.setText("الظهور عند القفل ⚠");
+        auto.setOnClickListener(v -> {
+            if (!Settings.canDrawOverlays(this) || !hasNotificationAccess()) {
+                startActivity(new Intent(this, SettingsActivity.class));
+            } else {
+                toggleAutoShow(auto);
+            }
+        });
         actions.addView(auto);
         TextView location = pill("تحديث الموقع", false);
         location.setOnClickListener(v -> {
@@ -339,6 +347,16 @@ public class MainActivity extends Activity {
         if (shown == 0) {
             TextView none = tv("لا توجد إشعارات محفوظة. فعّل صلاحية الوصول إلى الإشعارات من الزر أدناه.", 13, MUTED, Typeface.NORMAL);
             none.setGravity(Gravity.CENTER); none.setPadding(dp(8), dp(16), dp(8), dp(8)); notificationsBox.addView(none);
+        }
+    }
+
+
+    private boolean hasNotificationAccess() {
+        try {
+            String enabled = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
+            return enabled != null && enabled.contains(getPackageName());
+        } catch (Exception e) {
+            return false;
         }
     }
 
