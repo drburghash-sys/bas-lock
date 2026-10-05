@@ -621,11 +621,6 @@ public class MainActivity extends Activity {
 
     private void openClockApp() {
         try {
-            Intent i = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CLOCK);
-            startActivity(i);
-            return;
-        } catch (Exception ignored) {}
-        try {
             Intent i = new Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS);
             startActivity(i);
         } catch (Exception e) {
