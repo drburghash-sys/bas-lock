@@ -44,17 +44,18 @@ public class MainActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
         buildUi();
-        refreshLocation();
-        refreshAll();
+        safeRefreshAll();
 
         refreshReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent i) { refreshNotifications(); }
         };
-        if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(refreshReceiver, new IntentFilter("com.bas.lock.REFRESH"), RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(refreshReceiver, new IntentFilter("com.bas.lock.REFRESH"));
-        }
+        try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(refreshReceiver, new IntentFilter("com.bas.lock.REFRESH"), RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(refreshReceiver, new IntentFilter("com.bas.lock.REFRESH"));
+            }
+        } catch (Exception ignored) {}
         timer.post(tick);
     }
 
@@ -66,13 +67,12 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        refreshLocation();
-        refreshAll();
+        safeRefreshAll();
     }
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
-            updateClockAndCountdown();
+            try { updateClockAndCountdown(); } catch (Exception ignored) {}
             timer.postDelayed(this, 1000);
         }
     };
@@ -146,6 +146,12 @@ public class MainActivity extends Activity {
         if (autoOn) auto.setText("الظهور عند القفل ✓");
         auto.setOnClickListener(v -> toggleAutoShow(auto));
         actions.addView(auto);
+        TextView location = pill("تحديث الموقع", false);
+        location.setOnClickListener(v -> {
+            refreshLocation();
+            Toast.makeText(this, "سيتم استخدام موقع الجهاز بعد منح الإذن، وإلا فسيبقى تبوك افتراضيًا.", Toast.LENGTH_SHORT).show();
+        });
+        actions.addView(location);
         TextView settings = pill("الإعدادات", false);
         settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         actions.addView(settings);
@@ -165,6 +171,20 @@ public class MainActivity extends Activity {
         updateClockAndCountdown();
     }
 
+    private void safeRefreshAll() {
+        try {
+            refreshAll();
+        } catch (Exception e) {
+            try {
+                if (clock != null) clock.setText("--:--");
+                if (dateLine != null) dateLine.setText("BAS Lock يعمل بوضع الأمان");
+                if (hijriLine != null) hijriLine.setText("");
+                if (nextPrayer != null) nextPrayer.setText("تعذر تحديث بعض البيانات مؤقتًا");
+                if (notificationSummary != null) notificationSummary.setText("يمكن متابعة الإعدادات ثم إعادة فتح التطبيق");
+            } catch (Exception ignored) {}
+        }
+    }
+
     private void refreshLocation() {
         if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, 7);
@@ -177,13 +197,21 @@ public class MainActivity extends Activity {
                 Location x = lm.getLastKnownLocation(p);
                 if (x != null && (best == null || x.getAccuracy() < best.getAccuracy())) best = x;
             }
-            if (best != null) { lat = best.getLatitude(); lon = best.getLongitude(); }
+            if (best != null) {
+                lat = best.getLatitude(); lon = best.getLongitude();
+                safeRefreshAll();
+            }
         } catch (Exception ignored) {}
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == 7) { refreshLocation(); refreshAll(); }
+        if (requestCode == 7) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                refreshLocation();
+            }
+            safeRefreshAll();
+        }
     }
 
     private void computePrayerTimes() {
