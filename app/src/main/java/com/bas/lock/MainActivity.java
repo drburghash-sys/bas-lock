@@ -159,10 +159,29 @@ public class MainActivity extends Activity {
         Space s3 = new Space(this); content.addView(s3, new LinearLayout.LayoutParams(1, dp(16)));
 
         LinearLayout actions1 = new LinearLayout(this);
-        actions1.setOrientation(LinearLayout.HORIZONTAL); actions1.setGravity(Gravity.CENTER); actions1.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        TextView access = pill("تفعيل الإشعارات", true);
+        actions1.setOrientation(LinearLayout.HORIZONTAL);
+        actions1.setGravity(Gravity.CENTER);
+        actions1.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+
+        TextView basPlatform = pill("BAS Platform", true);
+        basPlatform.setOnClickListener(v -> openBasPlatformSecurely());
+        actions1.addView(basPlatform);
+
+        TextView settings = pill("الإعدادات", false);
+        settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
+        actions1.addView(settings);
+        content.addView(actions1);
+
+        LinearLayout actions2 = new LinearLayout(this);
+        actions2.setOrientation(LinearLayout.HORIZONTAL);
+        actions2.setGravity(Gravity.CENTER);
+        actions2.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        actions2.setPadding(0, dp(8), 0, 0);
+
+        TextView access = pill("تفعيل الإشعارات", false);
         access.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)));
-        actions1.addView(access);
+        actions2.addView(access);
+
         TextView auto = pill("الظهور عند القفل", false);
         boolean autoOn = getSharedPreferences("bas_lock_settings", MODE_PRIVATE).getBoolean("auto_show", true);
         boolean lockReady = Settings.canDrawOverlays(this) && hasNotificationAccess();
@@ -175,28 +194,26 @@ public class MainActivity extends Activity {
                 toggleAutoShow(auto);
             }
         });
-        actions1.addView(auto);
-        content.addView(actions1);
+        actions2.addView(auto);
+        content.addView(actions2);
 
-        LinearLayout actions2 = new LinearLayout(this);
-        actions2.setOrientation(LinearLayout.HORIZONTAL); actions2.setGravity(Gravity.CENTER); actions2.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        actions2.setPadding(0, dp(8), 0, 0);
+        LinearLayout actions3 = new LinearLayout(this);
+        actions3.setOrientation(LinearLayout.HORIZONTAL);
+        actions3.setGravity(Gravity.CENTER);
+        actions3.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        actions3.setPadding(0, dp(8), 0, 0);
 
         TextView close = pill("إغلاق BAS Lock", false);
         close.setOnClickListener(v -> requestSecureExit());
-        actions2.addView(close);
+        actions3.addView(close);
 
         TextView location = pill("تحديث الموقع", false);
         location.setOnClickListener(v -> {
             refreshLocation();
             Toast.makeText(this, "سيتم استخدام موقع الجهاز بعد منح الإذن، وإلا فسيبقى تبوك افتراضيًا.", Toast.LENGTH_SHORT).show();
         });
-        actions2.addView(location);
-
-        TextView settings = pill("الإعدادات", false);
-        settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
-        actions2.addView(settings);
-        content.addView(actions2);
+        actions3.addView(location);
+        content.addView(actions3);
 
         TextView note = tv("عند إغلاق BAS Lock من شاشة القفل سيطلب النظام البصمة أو وسيلة قفل الجهاز، ثم تظهر الشاشة الرئيسية مباشرة.", 12, MUTED, Typeface.NORMAL);
         note.setGravity(Gravity.CENTER); note.setPadding(dp(12), dp(12), dp(12), 0);
@@ -280,12 +297,11 @@ public class MainActivity extends Activity {
         Map<String, ZonedDateTime> map = times.asMap();
         ZonedDateTime now = ZonedDateTime.now();
         String next = getNextPrayerName(now);
-        DateTimeFormatter f = DateTimeFormatter.ofPattern("HH:mm", Locale.US);
         for (Map.Entry<String, ZonedDateTime> e : map.entrySet()) {
             LinearLayout cell = new LinearLayout(this); cell.setOrientation(LinearLayout.VERTICAL); cell.setGravity(Gravity.CENTER);
             int color = e.getKey().equals(next) ? GOLD : WHITE;
             TextView name = tv(e.getKey(), 12, color, Typeface.BOLD); name.setGravity(Gravity.CENTER);
-            TextView t = tv(arabicDigits(f.format(e.getValue())), 13, color, Typeface.NORMAL); t.setGravity(Gravity.CENTER);
+            TextView t = tv(formatTime(e.getValue()), 13, color, Typeface.NORMAL); t.setGravity(Gravity.CENTER);
             cell.addView(name); cell.addView(t);
             prayerRow.addView(cell, new LinearLayout.LayoutParams(0, dp(54), 1));
         }
@@ -293,7 +309,7 @@ public class MainActivity extends Activity {
 
     private void updateClockAndCountdown() {
         ZonedDateTime now = ZonedDateTime.now();
-        clock.setText(arabicDigits(DateTimeFormatter.ofPattern("HH:mm", Locale.US).format(now)));
+        clock.setText(formatTime(now));
         Locale ar = new Locale("ar", "SA");
         dateLine.setText(DateTimeFormatter.ofPattern("EEEE، d MMMM yyyy", ar).format(now));
         try {
@@ -391,6 +407,53 @@ public class MainActivity extends Activity {
     }
 
 
+
+    private boolean use24Hour() {
+        return getSharedPreferences("bas_lock_settings", MODE_PRIVATE).getBoolean("use_24h", true);
+    }
+
+    private String formatTime(ZonedDateTime value) {
+        if (use24Hour()) {
+            return arabicDigits(String.format(Locale.US, "%02d:%02d", value.getHour(), value.getMinute()));
+        }
+        int hour = value.getHour();
+        String suffix = hour < 12 ? "ص" : "م";
+        int h12 = hour % 12;
+        if (h12 == 0) h12 = 12;
+        return arabicDigits(String.format(Locale.US, "%d:%02d", h12, value.getMinute())) + " " + suffix;
+    }
+
+    private void openBasPlatformSecurely() {
+        KeyguardManager km = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        if (km != null && km.isKeyguardLocked()) {
+            try {
+                km.requestDismissKeyguard(this, new KeyguardManager.KeyguardDismissCallback() {
+                    @Override public void onDismissSucceeded() {
+                        launchBasPlatform();
+                    }
+                    @Override public void onDismissError() {
+                        Toast.makeText(MainActivity.this, "يجب فتح قفل الجهاز أولًا", Toast.LENGTH_SHORT).show();
+                    }
+                });
+                return;
+            } catch (Exception ignored) {}
+        }
+        launchBasPlatform();
+    }
+
+    private void launchBasPlatform() {
+        try {
+            Intent launch = getPackageManager().getLaunchIntentForPackage("com.drburghash.basfinal");
+            if (launch == null) {
+                Toast.makeText(this, "تعذر العثور على BAS Platform مثبتًا على الجهاز", Toast.LENGTH_LONG).show();
+                return;
+            }
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            startActivity(launch);
+        } catch (Exception e) {
+            Toast.makeText(this, "تعذر فتح BAS Platform", Toast.LENGTH_SHORT).show();
+        }
+    }
 
     private void applyBackground() {
         if (wallpaper == null || backgroundShade == null) return;
