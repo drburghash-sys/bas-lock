@@ -55,6 +55,12 @@ public final class NotificationStore {
         return out;
     }
 
+    public static synchronized void removePackage(Context c, String pkg) {
+        List<Item> items = load(c);
+        items.removeIf(x -> pkg.equals(x.pkg));
+        save(c, items);
+    }
+
     public static synchronized void clear(Context c) {
         c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().remove(DATA).apply();
     }
