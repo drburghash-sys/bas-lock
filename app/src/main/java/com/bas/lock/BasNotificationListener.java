@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.app.KeyguardManager;
 import android.content.*;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 
@@ -19,6 +20,7 @@ public class BasNotificationListener extends NotificationListenerService {
                     boolean enabled = getSharedPreferences("bas_lock_settings", MODE_PRIVATE)
                             .getBoolean("auto_show", true);
                     if (!enabled) return;
+                    if (!Settings.canDrawOverlays(BasNotificationListener.this)) return;
                     KeyguardManager km = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
                     if (km == null || !km.isKeyguardLocked()) return;
                     // Best-effort only. Modern Android may block background activity launches.
