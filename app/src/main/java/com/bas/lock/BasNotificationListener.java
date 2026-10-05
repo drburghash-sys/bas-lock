@@ -13,6 +13,16 @@ public class BasNotificationListener extends NotificationListenerService {
 
     @Override public void onListenerConnected() {
         super.onListenerConnected();
+        if (Build.VERSION.SDK_INT >= 31) {
+            try {
+                migrateNotificationFilter(
+                        FLAG_FILTER_TYPE_CONVERSATIONS |
+                        FLAG_FILTER_TYPE_ALERTING |
+                        FLAG_FILTER_TYPE_SILENT |
+                        FLAG_FILTER_TYPE_ONGOING,
+                        null);
+            } catch (Exception ignored) {}
+        }
         if (screenReceiver == null) {
             screenReceiver = new BroadcastReceiver() {
                 @Override public void onReceive(Context context, Intent intent) {
