@@ -2,6 +2,9 @@ package com.bas.lock;
 
 import android.app.Activity;
 import android.content.SharedPreferences;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -18,6 +21,11 @@ public class SettingsActivity extends Activity {
         super.onCreate(b);
         prefs = getSharedPreferences("bas_lock_settings", MODE_PRIVATE);
         build();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (prefs != null) build();
     }
 
     private void build() {
@@ -49,8 +57,11 @@ public class SettingsActivity extends Activity {
 
         root.addView(space(18));
         root.addView(sectionTitle("الخصوصية والسلوك"));
+
+        addPermissionCard();
+
         addToggle("الظهور التلقائي عند إضاءة شاشة القفل", "auto_show", true,
-                "قد يمنع Android التشغيل التلقائي في بعض الإصدارات؛ يبقى العرض فوق القفل متاحًا عند فتح التطبيق.");
+                "لن يعمل تلقائيًا إلا بعد منح الوصول إلى الإشعارات و«الظهور فوق التطبيقات».");
         addToggle("إظهار نص الإشعار بعد فتح الجهاز", "show_text_unlocked", true,
                 "أثناء قفل الجهاز لا يعرض BAS Lock نص الإشعار الكامل.");
 
@@ -62,6 +73,67 @@ public class SettingsActivity extends Activity {
         root.addView(done);
 
         setContentView(scroll);
+    }
+
+
+    private void addPermissionCard() {
+        boolean notif = hasNotificationAccess();
+        boolean overlay = Settings.canDrawOverlays(this);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(12),dp(12),dp(12),dp(12));
+        GradientDrawable g = new GradientDrawable();
+        g.setCornerRadius(dp(16));
+        g.setColor(Color.argb(65,255,255,255));
+        box.setBackground(g);
+
+        TextView title = tv("جاهزية الظهور على شاشة القفل", 14, WHITE, Typeface.BOLD);
+        box.addView(title);
+
+        TextView status = tv(
+                "الوصول إلى الإشعارات: " + (notif ? "مفعّل ✓" : "غير مفعّل") +
+                "\nالظهور فوق التطبيقات: " + (overlay ? "مفعّل ✓" : "غير مفعّل"),
+                12, (notif && overlay) ? GOLD : MUTED, Typeface.NORMAL);
+        status.setPadding(0,dp(7),0,dp(9));
+        box.addView(status);
+
+        TextView notifBtn = button(notif ? "الوصول إلى الإشعارات ✓" : "تفعيل الوصول إلى الإشعارات");
+        notifBtn.setOnClickListener(v -> {
+            try { startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); } catch (Exception ignored) {}
+        });
+        box.addView(notifBtn);
+
+        TextView overlayBtn = button(overlay ? "الظهور فوق التطبيقات ✓" : "السماح بالظهور فوق التطبيقات");
+        LinearLayout.LayoutParams op = new LinearLayout.LayoutParams(-1,-2);
+        op.setMargins(0,dp(7),0,0);
+        overlayBtn.setLayoutParams(op);
+        overlayBtn.setOnClickListener(v -> {
+            try {
+                Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + getPackageName()));
+                startActivity(i);
+            } catch (Exception ignored) {}
+        });
+        box.addView(overlayBtn);
+
+        TextView note = tv("يحتاج BAS Lock هذين الإذنين حتى يستطيع الاستجابة عند إضاءة شاشة القفل ومحاولة إظهار اللوحة فوق القفل.", 11, MUTED, Typeface.NORMAL);
+        note.setPadding(0,dp(8),0,0);
+        box.addView(note);
+
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1,-2);
+        p.setMargins(0,dp(7),0,dp(7));
+        box.setLayoutParams(p);
+        root.addView(box);
+    }
+
+    private boolean hasNotificationAccess() {
+        try {
+            String enabled = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
+            return enabled != null && enabled.contains(getPackageName());
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private void addOffset(String name, String key) {
