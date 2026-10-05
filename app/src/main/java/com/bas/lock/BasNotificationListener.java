@@ -11,6 +11,7 @@ import android.service.notification.StatusBarNotification;
 
 public class BasNotificationListener extends NotificationListenerService {
     private BroadcastReceiver screenReceiver;
+    private BroadcastReceiver commandReceiver;
 
     @Override public void onListenerConnected() {
         super.onListenerConnected();
@@ -52,6 +53,39 @@ public class BasNotificationListener extends NotificationListenerService {
                 registerReceiver(screenReceiver, f);
             }
         }
+        if (commandReceiver == null) {
+            commandReceiver = new BroadcastReceiver() {
+                @Override public void onReceive(Context context, Intent intent) {
+                    String action = intent.getAction();
+                    try {
+                        if ("com.bas.lock.DISMISS_KEY".equals(action)) {
+                            String key = intent.getStringExtra("key");
+                            if (key != null && !key.isEmpty()) {
+                                cancelNotification(key);
+                                NotificationStore.remove(BasNotificationListener.this, key);
+                            }
+                        } else if ("com.bas.lock.DISMISS_PACKAGE".equals(action)) {
+                            String pkg = intent.getStringExtra("pkg");
+                            if (pkg != null && !pkg.isEmpty()) {
+                                for (StatusBarNotification sbn : getActiveNotifications()) {
+                                    if (pkg.equals(sbn.getPackageName())) cancelNotification(sbn.getKey());
+                                }
+                                NotificationStore.removePackage(BasNotificationListener.this, pkg);
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                    sendBroadcast(new Intent("com.bas.lock.REFRESH").setPackage(getPackageName()));
+                }
+            };
+            IntentFilter commands = new IntentFilter();
+            commands.addAction("com.bas.lock.DISMISS_KEY");
+            commands.addAction("com.bas.lock.DISMISS_PACKAGE");
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(commandReceiver, commands, RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(commandReceiver, commands);
+            }
+        }
         syncActive();
     }
 
@@ -59,6 +93,10 @@ public class BasNotificationListener extends NotificationListenerService {
         if (screenReceiver != null) {
             try { unregisterReceiver(screenReceiver); } catch (Exception ignored) {}
             screenReceiver = null;
+        }
+        if (commandReceiver != null) {
+            try { unregisterReceiver(commandReceiver); } catch (Exception ignored) {}
+            commandReceiver = null;
         }
         super.onDestroy();
     }
