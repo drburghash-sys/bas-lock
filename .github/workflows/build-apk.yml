@@ -27,6 +27,26 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Restore stable BAS Lock signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: bas-lock-debug-keystore-v1
+
+      - name: Ensure stable BAS Lock signing key
+        shell: bash
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -dname "CN=BAS Lock,O=BAS,C=SA" \
+              -keyalg RSA -keysize 2048 -validity 10000
+          fi
+
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 

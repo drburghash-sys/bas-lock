@@ -1,7 +1,11 @@
 package com.bas.lock;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.location.Location;
+import android.location.LocationManager;
 import android.content.Intent;
 import android.net.Uri;
 import android.provider.Settings;
@@ -21,12 +25,19 @@ public class SettingsActivity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         prefs = getSharedPreferences("bas_lock_settings", MODE_PRIVATE);
+        applyImmersiveNavigationLock();
         build();
     }
 
     @Override protected void onResume() {
         super.onResume();
+        applyImmersiveNavigationLock();
         if (prefs != null) build();
+    }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) applyImmersiveNavigationLock();
     }
 
     private void build() {
@@ -73,6 +84,7 @@ public class SettingsActivity extends Activity {
         root.addView(sectionTitle("الخصوصية والسلوك"));
 
         addPermissionCard();
+        addLocationControl();
 
         addToggle("الظهور التلقائي عند إضاءة شاشة القفل", "auto_show", true,
                 "لن يعمل تلقائيًا إلا بعد منح الوصول إلى الإشعارات و«الظهور فوق التطبيقات».");
@@ -276,6 +288,87 @@ public class SettingsActivity extends Activity {
             prefs.edit().putString("background_uri", uri.toString()).apply();
             Toast.makeText(this, "تم حفظ الخلفية", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void addLocationControl() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(12), dp(11), dp(12), dp(11));
+        GradientDrawable g = new GradientDrawable();
+        g.setCornerRadius(dp(16));
+        g.setColor(Color.argb(65,255,255,255));
+        box.setBackground(g);
+
+        TextView title = tv("الموقع ومواقيت الصلاة", 14, WHITE, Typeface.BOLD);
+        box.addView(title);
+
+        TextView update = button("تحديث الموقع الآن");
+        LinearLayout.LayoutParams up = new LinearLayout.LayoutParams(-1,-2);
+        up.setMargins(0,dp(8),0,0);
+        update.setLayoutParams(up);
+        update.setOnClickListener(v -> refreshLocationFromSettings());
+        box.addView(update);
+
+        TextView note = tv("يحفظ BAS Lock آخر موقع متاح ويستخدمه لحساب مواقيت الصلاة. إذا تعذر الحصول على الموقع يستخدم تبوك افتراضيًا.", 11, MUTED, Typeface.NORMAL);
+        note.setPadding(0,dp(7),0,0);
+        box.addView(note);
+
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1,-2);
+        p.setMargins(0,dp(7),0,dp(7));
+        box.setLayoutParams(p);
+        root.addView(box);
+    }
+
+    private void refreshLocationFromSettings() {
+        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, 77);
+            return;
+        }
+        try {
+            LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
+            Location best = null;
+            for (String provider : lm.getProviders(true)) {
+                Location x = lm.getLastKnownLocation(provider);
+                if (x != null && (best == null || x.getAccuracy() < best.getAccuracy())) best = x;
+            }
+            if (best != null) {
+                prefs.edit()
+                        .putLong("saved_lat_bits", Double.doubleToRawLongBits(best.getLatitude()))
+                        .putLong("saved_lon_bits", Double.doubleToRawLongBits(best.getLongitude()))
+                        .apply();
+                Toast.makeText(this, "تم تحديث الموقع", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "لا يوجد موقع حديث. افتح الموقع في الجهاز وحاول مرة أخرى.", Toast.LENGTH_LONG).show();
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, "تعذر تحديث الموقع", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 77 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            refreshLocationFromSettings();
+        }
+    }
+
+    private void applyImmersiveNavigationLock() {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                WindowInsetsController controller = getWindow().getInsetsController();
+                if (controller != null) {
+                    controller.hide(WindowInsets.Type.navigationBars());
+                    controller.setSystemBarsBehavior(
+                            WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                }
+            } else {
+                getWindow().getDecorView().setSystemUiVisibility(
+                        View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+            }
+        } catch (Exception ignored) {}
     }
 
     private void addPermissionCard() {

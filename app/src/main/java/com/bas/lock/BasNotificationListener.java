@@ -32,6 +32,7 @@ public class BasNotificationListener extends NotificationListenerService {
                     boolean enabled = getSharedPreferences("bas_lock_settings", MODE_PRIVATE)
                             .getBoolean("auto_show", true);
                     if (!enabled) return;
+                    if (hasActiveCall()) return;
                     if (!Settings.canDrawOverlays(BasNotificationListener.this)) return;
                     KeyguardManager km = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
                     if (km == null || !km.isKeyguardLocked()) return;
@@ -104,6 +105,10 @@ public class BasNotificationListener extends NotificationListenerService {
     @Override public void onNotificationPosted(StatusBarNotification sbn) {
         if (sbn == null || sbn.getPackageName().equals(getPackageName())) return;
         Notification n = sbn.getNotification();
+        boolean incomingCall = isCallNotification(n, sbn.getPackageName());
+        if (incomingCall) {
+            sendBroadcast(new Intent("com.bas.lock.INCOMING_CALL").setPackage(getPackageName()));
+        }
         Bundle e = n.extras;
         NotificationStore.Item item = new NotificationStore.Item();
         item.key = sbn.getKey();
@@ -126,6 +131,27 @@ public class BasNotificationListener extends NotificationListenerService {
         try {
             for (StatusBarNotification sbn : getActiveNotifications()) onNotificationPosted(sbn);
         } catch (Exception ignored) {}
+    }
+
+    private boolean hasActiveCall() {
+        try {
+            for (StatusBarNotification sbn : getActiveNotifications()) {
+                if (sbn != null && isCallNotification(sbn.getNotification(), sbn.getPackageName())) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    private boolean isCallNotification(Notification n, String pkg) {
+        if (n == null) return false;
+        if (Notification.CATEGORY_CALL.equals(n.category)) return true;
+        String p = pkg == null ? "" : pkg.toLowerCase();
+        return p.contains("incallui")
+                || p.equals("com.samsung.android.dialer")
+                || p.equals("com.google.android.dialer")
+                || p.equals("com.android.dialer");
     }
 
     private int classify(Notification n, String pkg, String title, String text) {

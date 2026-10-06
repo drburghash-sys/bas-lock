@@ -48,19 +48,28 @@ public class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(NAVY);
-        getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
+        applyImmersiveNavigationLock();
+        loadSavedLocation();
         buildUi();
         safeRefreshAll();
 
         refreshReceiver = new BroadcastReceiver() {
-            @Override public void onReceive(Context c, Intent i) { refreshNotifications(); }
+            @Override public void onReceive(Context c, Intent i) {
+                if ("com.bas.lock.INCOMING_CALL".equals(i.getAction())) {
+                    try { finishAndRemoveTask(); } catch (Exception e) { finish(); }
+                    return;
+                }
+                refreshNotifications();
+            }
         };
         try {
+            IntentFilter filter = new IntentFilter();
+            filter.addAction("com.bas.lock.REFRESH");
+            filter.addAction("com.bas.lock.INCOMING_CALL");
             if (Build.VERSION.SDK_INT >= 33) {
-                registerReceiver(refreshReceiver, new IntentFilter("com.bas.lock.REFRESH"), RECEIVER_NOT_EXPORTED);
+                registerReceiver(refreshReceiver, filter, RECEIVER_NOT_EXPORTED);
             } else {
-                registerReceiver(refreshReceiver, new IntentFilter("com.bas.lock.REFRESH"));
+                registerReceiver(refreshReceiver, filter);
             }
         } catch (Exception ignored) {}
         timer.post(tick);
@@ -74,9 +83,16 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        applyImmersiveNavigationLock();
+        loadSavedLocation();
         applyBackground();
         safeRefreshAll();
         scrollToTop();
+    }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) applyImmersiveNavigationLock();
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -196,65 +212,64 @@ public class MainActivity extends Activity {
 
         Space s3 = new Space(this); content.addView(s3, new LinearLayout.LayoutParams(1, dp(16)));
 
-        LinearLayout actions1 = new LinearLayout(this);
-        actions1.setOrientation(LinearLayout.HORIZONTAL);
-        actions1.setGravity(Gravity.CENTER);
-        actions1.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        LinearLayout bottomActions = new LinearLayout(this);
+        bottomActions.setOrientation(LinearLayout.HORIZONTAL);
+        bottomActions.setGravity(Gravity.CENTER);
+        bottomActions.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        bottomActions.setPadding(0, dp(4), 0, 0);
 
-        TextView settings = pill("الإعدادات", false);
+        TextView settings = pill("⚙ الإعدادات", false);
         settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
-        actions1.addView(settings);
-        content.addView(actions1);
+        bottomActions.addView(settings, new LinearLayout.LayoutParams(0, -2, 1));
 
-        LinearLayout actions2 = new LinearLayout(this);
-        actions2.setOrientation(LinearLayout.HORIZONTAL);
-        actions2.setGravity(Gravity.CENTER);
-        actions2.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        actions2.setPadding(0, dp(8), 0, 0);
+        TextView unlock = pill("فتح الشاشة", true);
+        unlock.setOnClickListener(v -> requestSecureExit());
+        bottomActions.addView(unlock, new LinearLayout.LayoutParams(0, -2, 1));
 
-        TextView access = pill("تفعيل الإشعارات", false);
-        access.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)));
-        actions2.addView(access);
+        content.addView(bottomActions, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView auto = pill("الظهور عند القفل", false);
-        boolean autoOn = getSharedPreferences("bas_lock_settings", MODE_PRIVATE).getBoolean("auto_show", true);
-        boolean lockReady = Settings.canDrawOverlays(this) && hasNotificationAccess();
-        if (autoOn && lockReady) auto.setText("الظهور عند القفل ✓");
-        else if (autoOn) auto.setText("الظهور عند القفل ⚠");
-        auto.setOnClickListener(v -> {
-            if (!Settings.canDrawOverlays(this) || !hasNotificationAccess()) {
-                startActivity(new Intent(this, SettingsActivity.class));
-            } else {
-                toggleAutoShow(auto);
-            }
-        });
-        actions2.addView(auto);
-        content.addView(actions2);
-
-        LinearLayout actions3 = new LinearLayout(this);
-        actions3.setOrientation(LinearLayout.HORIZONTAL);
-        actions3.setGravity(Gravity.CENTER);
-        actions3.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        actions3.setPadding(0, dp(8), 0, 0);
-
-        TextView close = pill("إغلاق BAS Lock", false);
-        close.setOnClickListener(v -> requestSecureExit());
-        actions3.addView(close);
-
-        TextView location = pill("تحديث الموقع", false);
-        location.setOnClickListener(v -> {
-            refreshLocation();
-            Toast.makeText(this, "سيتم استخدام موقع الجهاز بعد منح الإذن، وإلا فسيبقى تبوك افتراضيًا.", Toast.LENGTH_SHORT).show();
-        });
-        actions3.addView(location);
-        content.addView(actions3);
-
-        TextView note = tv("عند إغلاق BAS Lock من شاشة القفل سيطلب النظام البصمة أو وسيلة قفل الجهاز، ثم تظهر الشاشة الرئيسية مباشرة.", 12, MUTED, Typeface.NORMAL);
-        note.setGravity(Gravity.CENTER); note.setPadding(dp(12), dp(12), dp(12), 0);
+        TextView note = tv("الإشعارات، الظهور عند القفل، تحديث الموقع والمظهر أصبحت داخل الإعدادات.", 11, MUTED, Typeface.NORMAL);
+        note.setGravity(Gravity.CENTER);
+        note.setPadding(dp(12), dp(10), dp(12), 0);
         content.addView(note);
 
         setContentView(page);
         applyBackground();
+    }
+
+    private void loadSavedLocation() {
+        SharedPreferences p = getSharedPreferences("bas_lock_settings", MODE_PRIVATE);
+        try {
+            lat = Double.longBitsToDouble(p.getLong("saved_lat_bits", Double.doubleToLongBits(lat)));
+            lon = Double.longBitsToDouble(p.getLong("saved_lon_bits", Double.doubleToLongBits(lon)));
+        } catch (Exception ignored) {}
+    }
+
+    private void saveLocation(double latitude, double longitude) {
+        getSharedPreferences("bas_lock_settings", MODE_PRIVATE).edit()
+                .putLong("saved_lat_bits", Double.doubleToRawLongBits(latitude))
+                .putLong("saved_lon_bits", Double.doubleToRawLongBits(longitude))
+                .apply();
+    }
+
+    private void applyImmersiveNavigationLock() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                WindowInsetsController controller = getWindow().getInsetsController();
+                if (controller != null) {
+                    controller.hide(WindowInsets.Type.navigationBars());
+                    controller.setSystemBarsBehavior(
+                            WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                }
+            } else {
+                getWindow().getDecorView().setSystemUiVisibility(
+                        View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+            }
+        } catch (Exception ignored) {}
     }
 
     private void refreshAll() {
@@ -291,7 +306,9 @@ public class MainActivity extends Activity {
                 if (x != null && (best == null || x.getAccuracy() < best.getAccuracy())) best = x;
             }
             if (best != null) {
-                lat = best.getLatitude(); lon = best.getLongitude();
+                lat = best.getLatitude();
+                lon = best.getLongitude();
+                saveLocation(lat, lon);
                 safeRefreshAll();
             }
         } catch (Exception ignored) {}
@@ -611,11 +628,46 @@ public class MainActivity extends Activity {
     }
 
     private void openClockApp() {
+        KeyguardManager km = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        if (km != null && km.isKeyguardLocked()) {
+            try {
+                km.requestDismissKeyguard(this, new KeyguardManager.KeyguardDismissCallback() {
+                    @Override public void onDismissSucceeded() { launchClockApp(); }
+                    @Override public void onDismissError() {
+                        Toast.makeText(MainActivity.this, "افتح قفل الجهاز لفتح الساعة", Toast.LENGTH_SHORT).show();
+                    }
+                });
+                return;
+            } catch (Exception ignored) {}
+        }
+        launchClockApp();
+    }
+
+    private void launchClockApp() {
+        String[] preferred = {"com.sec.android.app.clockpackage", "com.google.android.deskclock"};
+        for (String pkg : preferred) {
+            try {
+                Intent alarm = new Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS);
+                alarm.setPackage(pkg);
+                alarm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                startActivity(alarm);
+                return;
+            } catch (Exception ignored) {}
+            try {
+                Intent launch = getPackageManager().getLaunchIntentForPackage(pkg);
+                if (launch != null) {
+                    launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                    startActivity(launch);
+                    return;
+                }
+            } catch (Exception ignored) {}
+        }
         try {
-            Intent i = new Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS);
-            startActivity(i);
+            Intent generic = new Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS);
+            generic.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            startActivity(generic);
         } catch (Exception e) {
-            Toast.makeText(this, "تعذر فتح تطبيق الساعة", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "تعذر العثور على تطبيق الساعة", Toast.LENGTH_SHORT).show();
         }
     }
 
