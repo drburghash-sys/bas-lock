@@ -22,6 +22,12 @@ import java.time.chrono.HijrahDate;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoField;
 import java.util.*;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import org.json.JSONObject;
 
 public class MainActivity extends Activity {
     private final Handler timer = new Handler(Looper.getMainLooper());
@@ -31,6 +37,8 @@ public class MainActivity extends Activity {
     private ImageView wallpaper;
     private View backgroundShade;
     private TextView clock, dateLine, hijriLine, nextPrayer, notificationSummary;
+    private TextView topWeatherIcon, topWeatherTemp, topWeatherCondition, topBatteryIcon, topBatteryPercent, topBatteryLabel;
+    private long lastWeatherFetch = 0L, lastBatteryUpdate = 0L;
     private PrayerTimesCalculator.Times times;
     private double lat = 28.3838, lon = 36.5662; // Tabuk fallback
     private BroadcastReceiver refreshReceiver;
@@ -51,6 +59,9 @@ public class MainActivity extends Activity {
         applyImmersiveNavigationLock();
         loadSavedLocation();
         buildUi();
+        loadCachedTopWeather();
+        updateBatteryStatus();
+        refreshTopWeather(true);
         safeRefreshAll();
 
         refreshReceiver = new BroadcastReceiver() {
@@ -86,6 +97,8 @@ public class MainActivity extends Activity {
         applyImmersiveNavigationLock();
         loadSavedLocation();
         applyBackground();
+        updateBatteryStatus();
+        refreshTopWeather(false);
         safeRefreshAll();
         scrollToTop();
     }
@@ -113,7 +126,12 @@ public class MainActivity extends Activity {
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
-            try { updateClockAndCountdown(); } catch (Exception ignored) {}
+            try {
+                updateClockAndCountdown();
+                long now = System.currentTimeMillis();
+                if (now - lastBatteryUpdate > 30000L) updateBatteryStatus();
+                if (now - lastWeatherFetch > 15L * 60L * 1000L) refreshTopWeather(false);
+            } catch (Exception ignored) {}
             timer.postDelayed(this, 1000);
         }
     };
@@ -157,22 +175,69 @@ public class MainActivity extends Activity {
         topNav.addView(topPlatform);
         content.addView(topNav, new LinearLayout.LayoutParams(-1, -2));
 
-        clock = tv("--:--", 62, WHITE, Typeface.BOLD);
+        LinearLayout topStatus = new LinearLayout(this);
+        topStatus.setOrientation(LinearLayout.HORIZONTAL);
+        topStatus.setGravity(Gravity.CENTER_VERTICAL);
+        topStatus.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        topStatus.setPadding(dp(14), dp(10), dp(14), dp(10));
+        GradientDrawable topStatusBg = new GradientDrawable();
+        topStatusBg.setCornerRadius(dp(24));
+        topStatusBg.setColor(Color.argb(58, 4, 22, 42));
+        topStatusBg.setStroke(dp(1), Color.argb(70, 255, 255, 255));
+        topStatus.setBackground(topStatusBg);
+
+        LinearLayout weatherBox = new LinearLayout(this);
+        weatherBox.setOrientation(LinearLayout.VERTICAL);
+        weatherBox.setGravity(Gravity.CENTER);
+        weatherBox.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        topWeatherIcon = tv("☀️", 27, WHITE, Typeface.NORMAL);
+        topWeatherIcon.setGravity(Gravity.CENTER);
+        topWeatherTemp = tv("--°", 21, WHITE, Typeface.BOLD);
+        topWeatherTemp.setGravity(Gravity.CENTER);
+        topWeatherCondition = tv("الطقس", 10, MUTED, Typeface.NORMAL);
+        topWeatherCondition.setGravity(Gravity.CENTER);
+        weatherBox.addView(topWeatherIcon);
+        weatherBox.addView(topWeatherTemp);
+        weatherBox.addView(topWeatherCondition);
+        topStatus.addView(weatherBox, new LinearLayout.LayoutParams(0, -2, 1));
+
+        LinearLayout clockBox = new LinearLayout(this);
+        clockBox.setOrientation(LinearLayout.VERTICAL);
+        clockBox.setGravity(Gravity.CENTER);
+        clock = tv("--:--", 54, WHITE, Typeface.BOLD);
+        clock.setGravity(Gravity.CENTER);
         clock.setLetterSpacing(0.03f);
         clock.setOnClickListener(v -> openClockApp());
-        content.addView(clock);
+        clockBox.addView(clock, new LinearLayout.LayoutParams(-1, -2));
+        TextView clockHint = tv("الساعة", 10, MUTED, Typeface.NORMAL);
+        clockHint.setGravity(Gravity.CENTER);
+        clockBox.addView(clockHint);
+        topStatus.addView(clockBox, new LinearLayout.LayoutParams(0, -2, 1.55f));
 
-        LinearLayout lockShortcutRow = new LinearLayout(this);
-        lockShortcutRow.setOrientation(LinearLayout.HORIZONTAL);
-        lockShortcutRow.setGravity(Gravity.LEFT);
-        lockShortcutRow.setPadding(0, dp(2), 0, dp(4));
-        TextView topLock = pill("BAS Lock Screen", false);
-        topLock.setOnClickListener(v -> requestSecureExit());
-        lockShortcutRow.addView(topLock);
-        content.addView(lockShortcutRow, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout batteryBox = new LinearLayout(this);
+        batteryBox.setOrientation(LinearLayout.VERTICAL);
+        batteryBox.setGravity(Gravity.CENTER);
+        topBatteryIcon = tv("🔋", 27, WHITE, Typeface.NORMAL);
+        topBatteryIcon.setGravity(Gravity.CENTER);
+        topBatteryPercent = tv("--٪", 21, WHITE, Typeface.BOLD);
+        topBatteryPercent.setGravity(Gravity.CENTER);
+        topBatteryLabel = tv("البطارية", 10, MUTED, Typeface.NORMAL);
+        topBatteryLabel.setGravity(Gravity.CENTER);
+        batteryBox.addView(topBatteryIcon);
+        batteryBox.addView(topBatteryPercent);
+        batteryBox.addView(topBatteryLabel);
+        topStatus.addView(batteryBox, new LinearLayout.LayoutParams(0, -2, 1));
 
-        dateLine = tv("", 17, MUTED, Typeface.NORMAL); content.addView(dateLine);
-        hijriLine = tv("", 15, GOLD, Typeface.BOLD); content.addView(hijriLine);
+        LinearLayout.LayoutParams topStatusParams = new LinearLayout.LayoutParams(-1, -2);
+        topStatusParams.setMargins(0, dp(2), 0, dp(8));
+        content.addView(topStatus, topStatusParams);
+
+        dateLine = tv("", 17, MUTED, Typeface.NORMAL);
+        dateLine.setGravity(Gravity.CENTER);
+        content.addView(dateLine, new LinearLayout.LayoutParams(-1, -2));
+        hijriLine = tv("", 15, GOLD, Typeface.BOLD);
+        hijriLine.setGravity(Gravity.CENTER);
+        content.addView(hijriLine, new LinearLayout.LayoutParams(-1, -2));
 
         Space s1 = new Space(this); content.addView(s1, new LinearLayout.LayoutParams(1, dp(18)));
 
@@ -235,6 +300,125 @@ public class MainActivity extends Activity {
 
         setContentView(page);
         applyBackground();
+    }
+
+    private void updateBatteryStatus() {
+        lastBatteryUpdate = System.currentTimeMillis();
+        try {
+            Intent battery = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (battery == null) return;
+            int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+            int scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
+            int pct = (level >= 0 && scale > 0) ? Math.round(level * 100f / scale) : -1;
+            int status = battery.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+            boolean charging = status == BatteryManager.BATTERY_STATUS_CHARGING
+                    || status == BatteryManager.BATTERY_STATUS_FULL;
+
+            if (topBatteryPercent != null) {
+                topBatteryPercent.setText(pct >= 0 ? arabicDigits(String.valueOf(pct)) + "٪" : "--٪");
+            }
+            if (topBatteryIcon != null) topBatteryIcon.setText(charging ? "⚡🔋" : "🔋");
+            if (topBatteryLabel != null) {
+                topBatteryLabel.setText(charging ? "قيد الشحن" : "البطارية");
+                topBatteryLabel.setTextColor(charging ? GOLD : MUTED);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void loadCachedTopWeather() {
+        try {
+            SharedPreferences p = getSharedPreferences("bas_lock_settings", MODE_PRIVATE);
+            if (!p.getBoolean("top_weather_has_data", false)) return;
+            float temp = p.getFloat("top_weather_temp", 0f);
+            int code = p.getInt("top_weather_code", 0);
+            boolean isDay = p.getBoolean("top_weather_is_day", true);
+            applyTopWeather(temp, code, isDay);
+        } catch (Exception ignored) {}
+    }
+
+    private void refreshTopWeather(boolean force) {
+        long now = System.currentTimeMillis();
+        if (!force && now - lastWeatherFetch < 15L * 60L * 1000L) return;
+        lastWeatherFetch = now;
+
+        final double qLat = lat;
+        final double qLon = lon;
+        new Thread(() -> {
+            HttpURLConnection c = null;
+            try {
+                String address = "https://api.open-meteo.com/v1/forecast"
+                        + "?latitude=" + qLat
+                        + "&longitude=" + qLon
+                        + "&current=temperature_2m,weather_code,is_day"
+                        + "&timezone=Asia%2FRiyadh";
+                c = (HttpURLConnection) new URL(address).openConnection();
+                c.setConnectTimeout(7000);
+                c.setReadTimeout(7000);
+                c.setRequestProperty("Accept", "application/json");
+                c.setRequestProperty("User-Agent", "BAS-Lock/1.6");
+                if (c.getResponseCode() < 200 || c.getResponseCode() >= 300) return;
+
+                BufferedReader reader = new BufferedReader(new InputStreamReader(
+                        c.getInputStream(), StandardCharsets.UTF_8));
+                StringBuilder out = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) out.append(line);
+                reader.close();
+
+                JSONObject current = new JSONObject(out.toString()).getJSONObject("current");
+                float temp = (float) current.getDouble("temperature_2m");
+                int code = current.getInt("weather_code");
+                boolean isDay = current.optInt("is_day", 1) == 1;
+
+                getSharedPreferences("bas_lock_settings", MODE_PRIVATE).edit()
+                        .putBoolean("top_weather_has_data", true)
+                        .putFloat("top_weather_temp", temp)
+                        .putInt("top_weather_code", code)
+                        .putBoolean("top_weather_is_day", isDay)
+                        .apply();
+
+                runOnUiThread(() -> applyTopWeather(temp, code, isDay));
+            } catch (Exception ignored) {
+            } finally {
+                if (c != null) try { c.disconnect(); } catch (Exception ignored) {}
+            }
+        }).start();
+    }
+
+    private void applyTopWeather(float temp, int code, boolean isDay) {
+        if (topWeatherTemp != null) {
+            topWeatherTemp.setText(arabicDigits(String.valueOf(Math.round(temp))) + "°");
+        }
+        if (topWeatherIcon != null) topWeatherIcon.setText(weatherIcon(code, isDay));
+        if (topWeatherCondition != null) topWeatherCondition.setText(weatherCondition(code));
+    }
+
+    private String weatherIcon(int code, boolean isDay) {
+        if (code == 0) return isDay ? "☀️" : "🌙";
+        if (code == 1 || code == 2) return isDay ? "🌤️" : "🌙☁️";
+        if (code == 3) return "☁️";
+        if (code == 45 || code == 48) return "🌫️";
+        if (code >= 51 && code <= 67) return "🌧️";
+        if (code >= 71 && code <= 77) return "❄️";
+        if (code >= 80 && code <= 82) return "🌦️";
+        if (code >= 85 && code <= 86) return "🌨️";
+        if (code >= 95) return "⛈️";
+        return "☁️";
+    }
+
+    private String weatherCondition(int code) {
+        if (code == 0) return "صحو";
+        if (code == 1) return "صحو غالبًا";
+        if (code == 2) return "غائم جزئيًا";
+        if (code == 3) return "غائم";
+        if (code == 45 || code == 48) return "ضباب";
+        if (code >= 51 && code <= 57) return "رذاذ";
+        if (code >= 61 && code <= 67) return "أمطار";
+        if (code >= 71 && code <= 77) return "ثلوج";
+        if (code >= 80 && code <= 82) return "زخات";
+        if (code >= 85 && code <= 86) return "زخات ثلجية";
+        if (code >= 95) return "عواصف";
+        return "غائم";
     }
 
     private void loadSavedLocation() {
@@ -309,6 +493,8 @@ public class MainActivity extends Activity {
                 lat = best.getLatitude();
                 lon = best.getLongitude();
                 saveLocation(lat, lon);
+                lastWeatherFetch = 0L;
+                refreshTopWeather(true);
                 safeRefreshAll();
             }
         } catch (Exception ignored) {}
