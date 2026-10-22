@@ -42,7 +42,8 @@ public class MainActivity extends Activity {
     private ImageView wallpaper;
     private View backgroundShade;
     private TextView clock, dateLine, hijriLine, locationName, nextPrayer, notificationSummary;
-    private TextView qiblaArrow, qiblaDegrees;
+    private QiblaCompassView qiblaCompass;
+    private TextView qiblaDegrees, qiblaStatus;
     private SensorManager sensorManager;
     private Sensor rotationSensor;
     private double qiblaBearing, currentTrueHeading = Double.NaN;
@@ -56,9 +57,15 @@ public class MainActivity extends Activity {
             double magneticHeading = Math.toDegrees(angles[0]);
             GeomagneticField field = new GeomagneticField((float) lat, (float) lon, 0f, System.currentTimeMillis());
             currentTrueHeading = (magneticHeading + field.getDeclination() + 360) % 360;
-            updateQiblaArrow();
+            updateQiblaCompass();
         }
-        @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
+        @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {
+            if (sensor != null && sensor.getType() == Sensor.TYPE_ROTATION_VECTOR
+                    && accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE
+                    && qiblaStatus != null) {
+                qiblaStatus.setText("البوصلة غير دقيقة؛ أبعد الهاتف عن المعادن وحرّكه على شكل ٨");
+            }
+        }
     };
     private TextView topWeatherIcon, topWeatherTemp, topWeatherCondition, topBatteryIcon, topBatteryPercent, topBatteryLabel;
     private long lastWeatherFetch = 0L, lastBatteryUpdate = 0L;
@@ -293,16 +300,32 @@ public class MainActivity extends Activity {
 
         LinearLayout qiblaLine = new LinearLayout(this);
         qiblaLine.setOrientation(LinearLayout.HORIZONTAL);
-        qiblaLine.setGravity(Gravity.CENTER);
+        qiblaLine.setGravity(Gravity.CENTER_VERTICAL);
         qiblaLine.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        qiblaLine.setPadding(dp(4), dp(12), dp(4), 0);
-        qiblaArrow = tv("🧭", 30, GOLD, Typeface.BOLD);
-        qiblaArrow.setGravity(Gravity.CENTER);
-        qiblaArrow.setMinWidth(dp(45));
-        qiblaDegrees = tv("اتجاه القبلة", 13, GOLD, Typeface.BOLD);
-        qiblaDegrees.setGravity(Gravity.CENTER_VERTICAL);
-        qiblaLine.addView(qiblaArrow);
-        qiblaLine.addView(qiblaDegrees);
+        qiblaLine.setPadding(dp(2), dp(12), dp(2), 0);
+
+        qiblaCompass = new QiblaCompassView(this);
+        qiblaCompass.setContentDescription("بوصلة اتجاه القبلة: السهم الذهبي نحو الكعبة، والحرف N يحدد الشمال");
+        qiblaLine.addView(qiblaCompass, new LinearLayout.LayoutParams(dp(120), dp(120)));
+
+        LinearLayout qiblaDetails = new LinearLayout(this);
+        qiblaDetails.setOrientation(LinearLayout.VERTICAL);
+        qiblaDetails.setGravity(Gravity.CENTER_VERTICAL);
+        qiblaDetails.setPadding(dp(10), 0, dp(4), 0);
+        qiblaDegrees = tv("اتجاه القبلة", 15, GOLD, Typeface.BOLD);
+        qiblaDegrees.setGravity(Gravity.RIGHT);
+        qiblaDetails.addView(qiblaDegrees, new LinearLayout.LayoutParams(-1, -2));
+
+        qiblaStatus = tv("جارٍ تحديد اتجاه الهاتف...", 13, WHITE, Typeface.BOLD);
+        qiblaStatus.setGravity(Gravity.RIGHT);
+        qiblaStatus.setPadding(0, dp(7), 0, 0);
+        qiblaDetails.addView(qiblaStatus, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView qiblaHint = tv("السهم الذهبي = القبلة • N = الشمال. أمسك الهاتف مستويًا.", 11, MUTED, Typeface.NORMAL);
+        qiblaHint.setGravity(Gravity.RIGHT);
+        qiblaHint.setPadding(0, dp(6), 0, 0);
+        qiblaDetails.addView(qiblaHint, new LinearLayout.LayoutParams(-1, -2));
+        qiblaLine.addView(qiblaDetails, new LinearLayout.LayoutParams(0, -2, 1f));
         prayerCard.addView(qiblaLine, new LinearLayout.LayoutParams(-1, -2));
         updateQiblaDirection();
 
@@ -566,28 +589,47 @@ public class MainActivity extends Activity {
         qiblaBearing = LocationSupport.bearingToMakkah(lat, lon);
         if (qiblaDegrees != null) {
             String value = arabicDigits(String.valueOf(Math.round(qiblaBearing)));
-            qiblaDegrees.setText("القبلة " + value + "° من الشمال الحقيقي");
+            qiblaDegrees.setText("زاوية القبلة: " + value + "° من الشمال الحقيقي");
         }
-        updateQiblaArrow();
+        updateQiblaCompass();
     }
 
     private void startCompass() {
-        if (qiblaArrow == null) return;
+        if (qiblaCompass == null) return;
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
-        rotationSensor = sensorManager == null ? null : sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
+        rotationSensor = sensorManager == null ? null
+                : sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
         currentTrueHeading = Double.NaN;
         if (rotationSensor == null) {
-            qiblaArrow.setText("🧭");
-            qiblaArrow.setRotation(0f);
+            qiblaCompass.setDirections(qiblaBearing, Double.NaN);
+            if (qiblaStatus != null)
+                qiblaStatus.setText("لا توجد بوصلة في الجهاز؛ استخدم زاوية القبلة من الشمال");
             return;
         }
-        sensorManager.registerListener(compassListener, rotationSensor, SensorManager.SENSOR_DELAY_UI);
+        if (qiblaStatus != null)
+            qiblaStatus.setText("أمسك الهاتف مستويًا، وجّه أعلاه نحو السهم الذهبي");
+        if (!sensorManager.registerListener(compassListener, rotationSensor, SensorManager.SENSOR_DELAY_UI)
+                && qiblaStatus != null)
+            qiblaStatus.setText("تعذر تشغيل البوصلة؛ زاوية القبلة من الشمال موضحة أعلاه");
     }
 
-    private void updateQiblaArrow() {
-        if (qiblaArrow == null || Double.isNaN(currentTrueHeading)) return;
-        qiblaArrow.setText("▲");
-        qiblaArrow.setRotation((float) ((qiblaBearing - currentTrueHeading + 360.0) % 360.0));
+    private void updateQiblaCompass() {
+        if (qiblaCompass != null)
+            qiblaCompass.setDirections(qiblaBearing, currentTrueHeading);
+        if (qiblaStatus == null || Double.isNaN(currentTrueHeading)) return;
+
+        double turn = ((qiblaBearing - currentTrueHeading + 540.0) % 360.0) - 180.0;
+        long degrees = Math.round(Math.abs(turn));
+        String instruction;
+        if (degrees <= 5) {
+            instruction = "✓ أعلى الهاتف مواجه للقبلة";
+        } else if (turn > 0) {
+            instruction = "أدر أعلى الهاتف يمينًا " + arabicDigits(String.valueOf(degrees)) + "°";
+        } else {
+            instruction = "أدر أعلى الهاتف يسارًا " + arabicDigits(String.valueOf(degrees)) + "°";
+        }
+        if (!instruction.contentEquals(qiblaStatus.getText()))
+            qiblaStatus.setText(instruction);
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
