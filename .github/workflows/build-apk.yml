@@ -51,6 +51,11 @@ jobs:
             exit 1
           fi
 
+      - name: Print stable signing certificate fingerprint
+        shell: bash
+        run: |
+          keytool -exportcert -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey | sha256sum
+
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 

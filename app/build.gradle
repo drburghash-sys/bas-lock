@@ -6,6 +6,15 @@ android {
     namespace 'com.bas.lock'
     compileSdk 35
 
+    signingConfigs {
+        stableDebug {
+            storeFile file(System.getProperty('user.home') + '/.android/debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
     defaultConfig {
         applicationId 'com.bas.lock'
         minSdk 28
@@ -15,6 +24,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.stableDebug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
