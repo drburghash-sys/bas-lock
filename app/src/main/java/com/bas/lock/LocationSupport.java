@@ -85,10 +85,39 @@ public final class LocationSupport {
         return distance[0] <= 5000f;
     }
 
+    /** Offline fallbacks for nearby Saudi cities if this device has no geocoding backend. */
+    private static final Object[][] KNOWN_CITIES = {
+            {"سكاكا", 29.9697, 40.2065}, {"دومة الجندل", 29.8110, 39.8660},
+            {"القريات", 31.3330, 37.3430}, {"طبرجل", 30.5000, 38.2150},
+            {"عرعر", 30.9750, 41.0380}, {"رفحاء", 29.6350, 43.5170},
+            {"تبوك", 28.3838, 36.5662}, {"حائل", 27.5219, 41.6907},
+            {"تيماء", 27.6260, 38.5340}, {"العلا", 26.6175, 37.9160},
+            {"المدينة المنورة", 24.4672, 39.6111}, {"مكة المكرمة", 21.3891, 39.8579},
+            {"جدة", 21.5433, 39.1728}, {"الرياض", 24.7136, 46.6753},
+            {"الدمام", 26.4207, 50.0888}, {"الخبر", 26.2172, 50.1971},
+            {"الطائف", 21.4373, 40.5127}, {"بريدة", 26.3592, 43.9818},
+            {"عنيزة", 26.0843, 43.9936}, {"الأحساء", 25.3830, 49.5860},
+            {"جازان", 16.8894, 42.5706}, {"أبها", 18.2164, 42.5053},
+            {"خميس مشيط", 18.3064, 42.7292}, {"نجران", 17.5656, 44.2289},
+            {"الباحة", 20.0129, 41.4677}, {"ينبع", 24.0891, 38.0637}
+    };
+
     public static String label(SharedPreferences prefs, double latitude, double longitude) {
         if (hasCachedName(prefs, latitude, longitude)) {
             return "📍 " + prefs.getString("saved_city_name", "");
         }
+        float nearestMeters = Float.MAX_VALUE;
+        String nearestCity = null;
+        for (Object[] candidate : KNOWN_CITIES) {
+            float[] distance = new float[1];
+            Location.distanceBetween(latitude, longitude, (double) candidate[1], (double) candidate[2], distance);
+            if (distance[0] < nearestMeters) {
+                nearestMeters = distance[0];
+                nearestCity = (String) candidate[0];
+            }
+        }
+        if (nearestCity != null && nearestMeters <= 25000f)
+            return "📍 " + (nearestMeters > 12000f ? "بالقرب من " : "") + nearestCity;
         return "📍 " + String.format(Locale.US, "%.3f°, %.3f°", latitude, longitude);
     }
 

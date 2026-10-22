@@ -33,18 +33,22 @@ jobs:
           path: ~/.android/debug.keystore
           key: bas-lock-debug-keystore-v1
 
-      - name: Ensure stable BAS Lock signing key
+      - name: Restore permanent signing key when configured
         shell: bash
+        env:
+          BAS_LOCK_KEYSTORE_B64: ${{ secrets.BAS_LOCK_KEYSTORE_B64 }}
         run: |
           mkdir -p ~/.android
-          if [ ! -f ~/.android/debug.keystore ]; then
-            keytool -genkeypair -v \
-              -keystore ~/.android/debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -dname "CN=BAS Lock,O=BAS,C=SA" \
-              -keyalg RSA -keysize 2048 -validity 10000
+          if [ -n "$BAS_LOCK_KEYSTORE_B64" ]; then
+            printf '%s' "$BAS_LOCK_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+          fi
+
+      - name: Verify stable signing key exists
+        shell: bash
+        run: |
+          if [ ! -s ~/.android/debug.keystore ]; then
+            echo "::error::BAS Lock signing keystore is missing. Refusing to generate a different signature and risk existing app data."
+            exit 1
           fi
 
       - name: Build debug APK
