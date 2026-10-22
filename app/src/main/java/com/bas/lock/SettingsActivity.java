@@ -72,6 +72,8 @@ public class SettingsActivity extends Activity {
         root.addView(sectionTitle("المظهر"));
         addTimeFormatControl();
         root.addView(space(12));
+        addFontSizeControl();
+        root.addView(space(12));
         addTextColorControl();
         root.addView(space(12));
         root.addView(sectionTitle("الشفافية"));
@@ -123,6 +125,68 @@ public class SettingsActivity extends Activity {
         TextView note = tv("يتغير تنسيق الساعة الرئيسية وجميع مواقيت الصلاة معًا. نظام ١٢ ساعة يعرض ص/م.", 11, MUTED, Typeface.NORMAL);
         note.setPadding(0, dp(6), 0, 0);
         root.addView(note);
+    }
+
+    private void addFontSizeControl() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(12), dp(11), dp(12), dp(11));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(15));
+        bg.setColor(Color.argb(55, 255, 255, 255));
+        box.setBackground(bg);
+
+        int saved = Math.max(70, Math.min(160, prefs.getInt("font_scale_percent", 100)));
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+
+        TextView label = tv("حجم خط شاشة القفل", 15, WHITE, Typeface.BOLD);
+        header.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView value = tv(arabicDigits(saved) + "٪", 15, GOLD, Typeface.BOLD);
+        value.setGravity(Gravity.CENTER);
+        header.addView(value);
+        box.addView(header);
+
+        TextView preview = tv("١٢:٣٤  •  مواقيت الصلاة  •  اسم المدينة", 16, WHITE, Typeface.NORMAL);
+        preview.setGravity(Gravity.CENTER);
+        preview.setPadding(dp(5), dp(12), dp(5), dp(8));
+        preview.setTextSize(16f * saved / 100f);
+        box.addView(preview);
+
+        SeekBar seek = new SeekBar(this);
+        seek.setMax(18); // 70% to 160%, in 5% steps.
+        seek.setProgress((saved - 70) / 5);
+        seek.setContentDescription("التحكم في حجم خط شاشة القفل");
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                int percent = 70 + progress * 5;
+                value.setText(arabicDigits(percent) + "٪");
+                preview.setTextSize(16f * percent / 100f);
+                prefs.edit().putInt("font_scale_percent", percent).apply();
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar) {}
+            @Override public void onStopTrackingTouch(SeekBar bar) {}
+        });
+        box.addView(seek, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView reset = smallButton("استعادة الحجم الافتراضي (١٠٠٪)");
+        reset.setOnClickListener(v -> {
+            seek.setProgress(6);
+            prefs.edit().putInt("font_scale_percent", 100).apply();
+            value.setText("١٠٠٪");
+            preview.setTextSize(16f);
+        });
+        box.addView(reset);
+
+        TextView note = tv("من ٧٠٪ إلى ١٦٠٪. يُحفظ التغيير تلقائيًا ويظهر عند العودة إلى شاشة القفل، دون تغيير حجم خط الإعدادات.", 11, MUTED, Typeface.NORMAL);
+        note.setPadding(0, dp(9), 0, 0);
+        box.addView(note);
+
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
+        p.setMargins(0, dp(6), 0, 0);
+        root.addView(box, p);
     }
 
     private void addTextColorControl() {
