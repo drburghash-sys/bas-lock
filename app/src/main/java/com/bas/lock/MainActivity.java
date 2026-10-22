@@ -11,6 +11,11 @@ import android.graphics.drawable.Drawable;
 import android.location.Location;
 import android.location.LocationManager;
 import android.hardware.biometrics.BiometricPrompt;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.hardware.GeomagneticField;
 import android.net.Uri;
 import android.os.*;
 import android.provider.Settings;
@@ -36,7 +41,25 @@ public class MainActivity extends Activity {
     private final Set<String> expandedApps = new HashSet<>();
     private ImageView wallpaper;
     private View backgroundShade;
-    private TextView clock, dateLine, hijriLine, nextPrayer, notificationSummary;
+    private TextView clock, dateLine, hijriLine, locationName, nextPrayer, notificationSummary;
+    private TextView qiblaArrow, qiblaDegrees;
+    private SensorManager sensorManager;
+    private Sensor rotationSensor;
+    private double qiblaBearing, currentTrueHeading = Double.NaN;
+    private final SensorEventListener compassListener = new SensorEventListener() {
+        @Override public void onSensorChanged(SensorEvent event) {
+            if (event.sensor.getType() != Sensor.TYPE_ROTATION_VECTOR) return;
+            float[] matrix = new float[9];
+            SensorManager.getRotationMatrixFromVector(matrix, event.values);
+            float[] angles = new float[3];
+            SensorManager.getOrientation(matrix, angles);
+            double magneticHeading = Math.toDegrees(angles[0]);
+            GeomagneticField field = new GeomagneticField((float) lat, (float) lon, 0f, System.currentTimeMillis());
+            currentTrueHeading = (magneticHeading + field.getDeclination() + 360) % 360;
+            updateQiblaArrow();
+        }
+        @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
+    };
     private TextView topWeatherIcon, topWeatherTemp, topWeatherCondition, topBatteryIcon, topBatteryPercent, topBatteryLabel;
     private long lastWeatherFetch = 0L, lastBatteryUpdate = 0L;
     private PrayerTimesCalculator.Times times;
@@ -86,6 +109,11 @@ public class MainActivity extends Activity {
         timer.post(tick);
     }
 
+    @Override protected void onPause() {
+        if (sensorManager != null) sensorManager.unregisterListener(compassListener);
+        super.onPause();
+    }
+
     @Override protected void onDestroy() {
         timer.removeCallbacks(tick);
         if (refreshReceiver != null) try { unregisterReceiver(refreshReceiver); } catch (Exception ignored) {}
@@ -100,6 +128,9 @@ public class MainActivity extends Activity {
         updateBatteryStatus();
         refreshTopWeather(false);
         safeRefreshAll();
+        updateLocationName();
+        startCompass();
+        if (LocationSupport.permitted(this)) refreshLocation();
         scrollToTop();
     }
 
@@ -239,6 +270,11 @@ public class MainActivity extends Activity {
         hijriLine.setGravity(Gravity.CENTER);
         content.addView(hijriLine, new LinearLayout.LayoutParams(-1, -2));
 
+        locationName = tv("📍 جاري تحديد الموقع", 14, GOLD, Typeface.BOLD);
+        locationName.setGravity(Gravity.CENTER);
+        locationName.setPadding(0, dp(7), 0, 0);
+        content.addView(locationName, new LinearLayout.LayoutParams(-1, -2));
+
         Space s1 = new Space(this); content.addView(s1, new LinearLayout.LayoutParams(1, dp(18)));
 
         LinearLayout prayerCard = card("prayer_alpha", 60);
@@ -254,6 +290,22 @@ public class MainActivity extends Activity {
         nextPrayer.setGravity(Gravity.CENTER);
         nextPrayer.setPadding(0, dp(14), 0, dp(3));
         prayerCard.addView(nextPrayer);
+
+        LinearLayout qiblaLine = new LinearLayout(this);
+        qiblaLine.setOrientation(LinearLayout.HORIZONTAL);
+        qiblaLine.setGravity(Gravity.CENTER);
+        qiblaLine.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        qiblaLine.setPadding(dp(4), dp(12), dp(4), 0);
+        qiblaArrow = tv("🧭", 30, GOLD, Typeface.BOLD);
+        qiblaArrow.setGravity(Gravity.CENTER);
+        qiblaArrow.setMinWidth(dp(45));
+        qiblaDegrees = tv("اتجاه القبلة", 13, GOLD, Typeface.BOLD);
+        qiblaDegrees.setGravity(Gravity.CENTER_VERTICAL);
+        qiblaLine.addView(qiblaArrow);
+        qiblaLine.addView(qiblaDegrees);
+        prayerCard.addView(qiblaLine, new LinearLayout.LayoutParams(-1, -2));
+        updateQiblaDirection();
+
         content.addView(prayerCard, new LinearLayout.LayoutParams(-1, -2));
 
         Space s2 = new Space(this); content.addView(s2, new LinearLayout.LayoutParams(1, dp(14)));
@@ -300,6 +352,7 @@ public class MainActivity extends Activity {
 
         setContentView(page);
         applyBackground();
+        updateLocationName();
     }
 
     private void updateBatteryStatus() {
@@ -427,6 +480,8 @@ public class MainActivity extends Activity {
             lat = Double.longBitsToDouble(p.getLong("saved_lat_bits", Double.doubleToLongBits(lat)));
             lon = Double.longBitsToDouble(p.getLong("saved_lon_bits", Double.doubleToLongBits(lon)));
         } catch (Exception ignored) {}
+        if (locationName != null) updateLocationName();
+        updateQiblaDirection();
     }
 
     private void saveLocation(double latitude, double longitude) {
@@ -478,26 +533,61 @@ public class MainActivity extends Activity {
     }
 
     private void refreshLocation() {
-        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, 7);
+        if (!LocationSupport.permitted(this)) return;
+        LocationSupport.refresh(this, fix -> {
+            double latitude = fix.getLatitude(), longitude = fix.getLongitude();
+            if (Math.abs(latitude - lat) < 0.0001 && Math.abs(longitude - lon) < 0.0001) return;
+            lat = latitude;
+            lon = longitude;
+            saveLocation(lat, lon);
+            lastWeatherFetch = 0L;
+            refreshTopWeather(true);
+            updateLocationName();
+            updateQiblaDirection();
+            safeRefreshAll();
+        });
+    }
+
+    private void updateLocationName() {
+        if (locationName == null) return;
+        SharedPreferences p = getSharedPreferences("bas_lock_settings", MODE_PRIVATE);
+        locationName.setText(LocationSupport.label(p, lat, lon));
+        if (LocationSupport.hasCachedName(p, lat, lon)) return;
+        final double wantedLat = lat, wantedLon = lon;
+        LocationSupport.resolveCity(this, wantedLat, wantedLon, name -> {
+            if (isFinishing() || isDestroyed()) return;
+            LocationSupport.saveCity(p, name, wantedLat, wantedLon);
+            if (Math.abs(lat - wantedLat) < 0.0001 && Math.abs(lon - wantedLon) < 0.0001)
+                locationName.setText(LocationSupport.label(p, lat, lon));
+        });
+    }
+
+    private void updateQiblaDirection() {
+        qiblaBearing = LocationSupport.bearingToMakkah(lat, lon);
+        if (qiblaDegrees != null) {
+            String value = arabicDigits(String.valueOf(Math.round(qiblaBearing)));
+            qiblaDegrees.setText("القبلة " + value + "° من الشمال الحقيقي");
+        }
+        updateQiblaArrow();
+    }
+
+    private void startCompass() {
+        if (qiblaArrow == null) return;
+        sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
+        rotationSensor = sensorManager == null ? null : sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
+        currentTrueHeading = Double.NaN;
+        if (rotationSensor == null) {
+            qiblaArrow.setText("🧭");
+            qiblaArrow.setRotation(0f);
             return;
         }
-        try {
-            LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
-            Location best = null;
-            for (String p : lm.getProviders(true)) {
-                Location x = lm.getLastKnownLocation(p);
-                if (x != null && (best == null || x.getAccuracy() < best.getAccuracy())) best = x;
-            }
-            if (best != null) {
-                lat = best.getLatitude();
-                lon = best.getLongitude();
-                saveLocation(lat, lon);
-                lastWeatherFetch = 0L;
-                refreshTopWeather(true);
-                safeRefreshAll();
-            }
-        } catch (Exception ignored) {}
+        sensorManager.registerListener(compassListener, rotationSensor, SensorManager.SENSOR_DELAY_UI);
+    }
+
+    private void updateQiblaArrow() {
+        if (qiblaArrow == null || Double.isNaN(currentTrueHeading)) return;
+        qiblaArrow.setText("▲");
+        qiblaArrow.setRotation((float) ((qiblaBearing - currentTrueHeading + 360.0) % 360.0));
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
@@ -906,21 +996,33 @@ public class MainActivity extends Activity {
 
     private void applyBackground() {
         if (wallpaper == null || backgroundShade == null) return;
-        String saved = getSharedPreferences("bas_lock_settings", MODE_PRIVATE).getString("background_uri", "");
-        if (TextUtils.isEmpty(saved)) {
-            wallpaper.setImageDrawable(null);
-            wallpaper.setVisibility(View.GONE);
-            backgroundShade.setBackgroundColor(Color.TRANSPARENT);
-            return;
+        SharedPreferences prefs = getSharedPreferences("bas_lock_settings", MODE_PRIVATE);
+        String saved = prefs.getString("background_uri", "");
+        int brightness = Math.max(0, Math.min(100, prefs.getInt("background_brightness", 50)));
+        boolean hasImage = !TextUtils.isEmpty(saved);
+        if (hasImage) {
+            try {
+                wallpaper.setImageURI(Uri.parse(saved));
+                if (wallpaper.getDrawable() == null) hasImage = false;
+            } catch (Exception e) {
+                hasImage = false;
+            }
         }
-        try {
-            wallpaper.setImageURI(Uri.parse(saved));
+        if (hasImage) {
             wallpaper.setVisibility(View.VISIBLE);
-            backgroundShade.setBackgroundColor(Color.argb(145, 2, 14, 30));
-        } catch (Exception e) {
+            // At 50%, retain the prior image dimming (145/255). 100% is unshaded.
+            int opacity = Math.min(245, Math.round((100 - brightness) * 2.9f));
+            backgroundShade.setBackgroundColor(Color.argb(opacity, 2, 14, 30));
+        } else {
             wallpaper.setImageDrawable(null);
             wallpaper.setVisibility(View.GONE);
-            backgroundShade.setBackgroundColor(Color.TRANSPARENT);
+            // The default gradient can be dimmed or lightened separately.
+            if (brightness < 50)
+                backgroundShade.setBackgroundColor(Color.argb((50 - brightness) * 4, 0, 0, 0));
+            else if (brightness > 50)
+                backgroundShade.setBackgroundColor(Color.argb((brightness - 50) * 2, 255, 255, 255));
+            else
+                backgroundShade.setBackgroundColor(Color.TRANSPARENT);
         }
     }
 

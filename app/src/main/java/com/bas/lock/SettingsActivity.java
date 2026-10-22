@@ -20,6 +20,7 @@ public class SettingsActivity extends Activity {
     private static final int REQ_BACKGROUND = 51;
     private SharedPreferences prefs;
     private LinearLayout root;
+    private TextView locationStatus;
     private static final int NAVY = Color.rgb(6,26,51), GOLD = Color.rgb(228,184,95), WHITE = Color.rgb(255,253,248), MUTED = Color.rgb(182,199,217);
 
     @Override protected void onCreate(Bundle b) {
@@ -247,7 +248,46 @@ public class SettingsActivity extends Activity {
                 .replace('8','٨').replace('9','٩');
     }
 
+    private void addBackgroundBrightnessControl() {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(12), dp(9), dp(12), dp(9));
+        GradientDrawable shade = new GradientDrawable();
+        shade.setCornerRadius(dp(15));
+        shade.setColor(Color.argb(55, 255, 255, 255));
+        panel.setBackground(shade);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        TextView title = tv("سطوع خلفية شاشة القفل", 14, WHITE, Typeface.BOLD);
+        int value = Math.max(0, Math.min(100, prefs.getInt("background_brightness", 50)));
+        TextView percent = tv(arabicDigits(value) + "٪", 13, GOLD, Typeface.BOLD);
+        header.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        header.addView(percent);
+        panel.addView(header);
+
+        SeekBar slider = new SeekBar(this);
+        slider.setMax(100);
+        slider.setProgress(value);
+        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                if (!fromUser) return;
+                prefs.edit().putInt("background_brightness", progress).apply();
+                percent.setText(arabicDigits(progress) + "٪");
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar) {}
+            @Override public void onStopTrackingTouch(SeekBar bar) {}
+        });
+        panel.addView(slider);
+        root.addView(panel);
+        TextView note = tv("يغير إضاءة الخلفية فقط، ولا يغير سطوع شاشة الجهاز.", 11, MUTED, Typeface.NORMAL);
+        note.setPadding(0, dp(4), 0, dp(8));
+        root.addView(note);
+    }
+
     private void addBackgroundControls() {
+        addBackgroundBrightnessControl();
         TextView choose = button("اختيار خلفية من الصور");
         choose.setOnClickListener(v -> {
             try {
@@ -301,6 +341,11 @@ public class SettingsActivity extends Activity {
 
         TextView title = tv("الموقع ومواقيت الصلاة", 14, WHITE, Typeface.BOLD);
         box.addView(title);
+        double shownLat = Double.longBitsToDouble(prefs.getLong("saved_lat_bits", Double.doubleToLongBits(28.3838)));
+        double shownLon = Double.longBitsToDouble(prefs.getLong("saved_lon_bits", Double.doubleToLongBits(36.5662)));
+        locationStatus = tv(LocationSupport.label(prefs, shownLat, shownLon), 13, GOLD, Typeface.BOLD);
+        locationStatus.setPadding(0, dp(7), 0, dp(5));
+        box.addView(locationStatus);
 
         TextView update = button("تحديث الموقع الآن");
         LinearLayout.LayoutParams up = new LinearLayout.LayoutParams(-1,-2);
@@ -309,7 +354,7 @@ public class SettingsActivity extends Activity {
         update.setOnClickListener(v -> refreshLocationFromSettings());
         box.addView(update);
 
-        TextView note = tv("يحفظ BAS Lock آخر موقع متاح ويستخدمه لحساب مواقيت الصلاة. إذا تعذر الحصول على الموقع يستخدم تبوك افتراضيًا.", 11, MUTED, Typeface.NORMAL);
+        TextView note = tv("يحفظ التطبيق اسم المدينة والإحداثيات ويستخدمها لحساب الصلاة والقبلة. إذا لم يتوفر تحديد الموقع تُعرض الإحداثيات المحفوظة، أو تُستخدم تبوك لأول تشغيل فقط.", 11, MUTED, Typeface.NORMAL);
         note.setPadding(0,dp(7),0,0);
         box.addView(note);
 
@@ -320,29 +365,31 @@ public class SettingsActivity extends Activity {
     }
 
     private void refreshLocationFromSettings() {
-        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, 77);
+        if (!LocationSupport.permitted(this)) {
+            requestPermissions(new String[]{
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+            }, 77);
             return;
         }
-        try {
-            LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
-            Location best = null;
-            for (String provider : lm.getProviders(true)) {
-                Location x = lm.getLastKnownLocation(provider);
-                if (x != null && (best == null || x.getAccuracy() < best.getAccuracy())) best = x;
-            }
-            if (best != null) {
-                prefs.edit()
-                        .putLong("saved_lat_bits", Double.doubleToRawLongBits(best.getLatitude()))
-                        .putLong("saved_lon_bits", Double.doubleToRawLongBits(best.getLongitude()))
-                        .apply();
-                Toast.makeText(this, "تم تحديث الموقع", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, "لا يوجد موقع حديث. افتح الموقع في الجهاز وحاول مرة أخرى.", Toast.LENGTH_LONG).show();
-            }
-        } catch (Exception e) {
-            Toast.makeText(this, "تعذر تحديث الموقع", Toast.LENGTH_SHORT).show();
-        }
+        Toast.makeText(this, "جاري تحديث الموقع واسم المدينة", Toast.LENGTH_SHORT).show();
+        LocationSupport.refresh(this, fix -> {
+            if (isFinishing() || isDestroyed()) return;
+            LocationSupport.store(prefs, fix);
+            final double latitude = fix.getLatitude(), longitude = fix.getLongitude();
+            if (locationStatus != null)
+                locationStatus.setText(LocationSupport.label(prefs, latitude, longitude));
+            LocationSupport.resolveCity(this, latitude, longitude, name -> {
+                if (isFinishing() || isDestroyed()) return;
+                LocationSupport.saveCity(prefs, name, latitude, longitude);
+                if (locationStatus != null) {
+                    double currentLat = Double.longBitsToDouble(prefs.getLong("saved_lat_bits", 0));
+                    double currentLon = Double.longBitsToDouble(prefs.getLong("saved_lon_bits", 0));
+                    if (Math.abs(currentLat - latitude) < 0.0001 && Math.abs(currentLon - longitude) < 0.0001)
+                        locationStatus.setText(LocationSupport.label(prefs, latitude, longitude));
+                }
+            });
+        });
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
