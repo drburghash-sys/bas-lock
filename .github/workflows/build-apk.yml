@@ -51,10 +51,16 @@ jobs:
             exit 1
           fi
 
-      - name: Print stable signing certificate fingerprint
+      - name: Verify BAS Lock signing certificate fingerprint
         shell: bash
         run: |
-          keytool -exportcert -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey | sha256sum
+          ACTUAL="$(keytool -exportcert -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey | sha256sum | cut -d' ' -f1)"
+          REQUIRED="a3166125736a561783da4211e579c99a2e56d81a2b058af26100b87226e9a498"
+          echo "Signing certificate SHA-256: $ACTUAL"
+          if [ "$ACTUAL" != "$REQUIRED" ]; then
+            echo "::error::BAS Lock signing certificate does not match the pinned key. Build aborted to protect app update compatibility."
+            exit 1
+          fi
 
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
