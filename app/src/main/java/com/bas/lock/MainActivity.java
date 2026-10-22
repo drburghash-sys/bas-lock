@@ -65,8 +65,6 @@ public class MainActivity extends Activity {
     private PrayerTimesCalculator.Times times;
     private double lat = 28.3838, lon = 36.5662; // Tabuk fallback
     private BroadcastReceiver refreshReceiver;
-    // 100% retains the original sizes for existing users.
-    private int fontScalePercent = 100;
 
     private static final int NAVY = Color.rgb(6,26,51);
     private static final int NAVY2 = Color.rgb(10,36,68);
@@ -83,7 +81,6 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(NAVY);
         applyImmersiveNavigationLock();
         loadSavedLocation();
-        fontScalePercent = savedFontScalePercent();
         buildUi();
         loadCachedTopWeather();
         updateBatteryStatus();
@@ -127,13 +124,6 @@ public class MainActivity extends Activity {
         super.onResume();
         applyImmersiveNavigationLock();
         loadSavedLocation();
-        // Recreate the lock screen only when the user changed the font size in Settings.
-        int updatedFontScale = savedFontScalePercent();
-        if (updatedFontScale != fontScalePercent) {
-            fontScalePercent = updatedFontScale;
-            buildUi();
-            loadCachedTopWeather();
-        }
         applyBackground();
         updateBatteryStatus();
         refreshTopWeather(false);
@@ -247,11 +237,6 @@ public class MainActivity extends Activity {
         clockBox.setGravity(Gravity.CENTER);
         clock = tv("--:--", 54, WHITE, Typeface.BOLD);
         clock.setGravity(Gravity.CENTER);
-        // Keep the clock on one line even on narrow phones at larger font sizes.
-        clock.setMaxLines(1);
-        clock.setAutoSizeTextTypeUniformWithConfiguration(22,
-                Math.max(22, Math.round(54f * fontScalePercent / 100f)),
-                1, android.util.TypedValue.COMPLEX_UNIT_SP);
         clock.setLetterSpacing(0.03f);
         clock.setOnClickListener(v -> openClockApp());
         clockBox.addView(clock, new LinearLayout.LayoutParams(-1, -2));
@@ -776,7 +761,7 @@ public class MainActivity extends Activity {
             header.addView(titleBox, new LinearLayout.LayoutParams(0, -2, 1));
 
             TextView clearAll = pill("مسح الكل", false);
-            clearAll.setTextSize(10f * fontScalePercent / 100f);
+            clearAll.setTextSize(10);
             clearAll.setOnClickListener(v -> dismissPackage(pkg));
             header.addView(clearAll);
 
@@ -841,12 +826,12 @@ public class MainActivity extends Activity {
         controls.setPadding(0, dp(6), 0, 0);
 
         TextView manage = pill("إعدادات الإشعارات", false);
-        manage.setTextSize(10f * fontScalePercent / 100f);
+        manage.setTextSize(10);
         manage.setOnClickListener(v -> openAppNotificationSettings(x.pkg));
         controls.addView(manage);
 
         TextView closeOne = pill("إغلاق", false);
-        closeOne.setTextSize(10f * fontScalePercent / 100f);
+        closeOne.setTextSize(10);
         closeOne.setOnClickListener(v -> dismissNotification(x.key));
         controls.addView(closeOne);
 
@@ -1159,16 +1144,10 @@ public class MainActivity extends Activity {
         catch (Exception e) { return WHITE; }
     }
 
-    private int savedFontScalePercent() {
-        int value = getSharedPreferences("bas_lock_settings", MODE_PRIVATE)
-                .getInt("font_scale_percent", 100);
-        return Math.max(70, Math.min(160, value));
-    }
-
     private TextView tv(String s, int sp, int color, int style) {
         TextView v = new TextView(this);
         v.setText(s);
-        v.setTextSize(sp * fontScalePercent / 100f);
+        v.setTextSize(sp);
         int actual = (color == WHITE || color == MUTED) ? userTextColor() : color;
         v.setTextColor(actual);
         v.setTypeface(Typeface.create("sans", style));
