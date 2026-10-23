@@ -50,7 +50,10 @@ public final class LocationSupport {
                 } catch (SecurityException ignored) {}
             }
         } catch (Exception ignored) {}
-        if (newest != null) callback.accept(newest);
+        // Do not silently substitute a stale fix from a different city.
+        if (newest != null && newest.getTime() > 0
+                && Math.abs(System.currentTimeMillis() - newest.getTime()) <= 48L * 60 * 60 * 1000)
+            callback.accept(newest);
 
         if (Build.VERSION.SDK_INT >= 30) {
             try {

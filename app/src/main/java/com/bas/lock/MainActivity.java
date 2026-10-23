@@ -43,7 +43,9 @@ public class MainActivity extends Activity {
     private View backgroundShade;
     private TextView clock, dateLine, hijriLine, locationName, nextPrayer, notificationSummary;
     private QiblaCompassView qiblaCompass;
-    private TextView qiblaDegrees, qiblaStatus;
+    private TextView qiblaDegrees, qiblaStatus, qiblaHeadingLabel;
+    private boolean hasConfirmedQiblaLocation = false;
+    private boolean compassTilted = false;
     private SensorManager sensorManager;
     private Sensor rotationSensor;
     private double qiblaBearing, currentTrueHeading = Double.NaN;
@@ -54,9 +56,17 @@ public class MainActivity extends Activity {
             SensorManager.getRotationMatrixFromVector(matrix, event.values);
             float[] angles = new float[3];
             SensorManager.getOrientation(matrix, angles);
-            double magneticHeading = Math.toDegrees(angles[0]);
-            GeomagneticField field = new GeomagneticField((float) lat, (float) lon, 0f, System.currentTimeMillis());
-            currentTrueHeading = (magneticHeading + field.getDeclination() + 360) % 360;
+            // Orientation is designed for the phone lying mostly flat, screen up.
+            compassTilted = Math.abs(Math.toDegrees(angles[1])) > 65
+                    || Math.abs(Math.toDegrees(angles[2])) > 65;
+            if (compassTilted) {
+                currentTrueHeading = Double.NaN;
+            } else {
+                double magneticHeading = Math.toDegrees(angles[0]);
+                GeomagneticField field = new GeomagneticField(
+                        (float) lat, (float) lon, 0f, System.currentTimeMillis());
+                currentTrueHeading = (magneticHeading + field.getDeclination() + 360) % 360;
+            }
             updateQiblaCompass();
         }
         @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {
@@ -316,6 +326,10 @@ public class MainActivity extends Activity {
         qiblaDegrees.setGravity(Gravity.RIGHT);
         qiblaDetails.addView(qiblaDegrees, new LinearLayout.LayoutParams(-1, -2));
 
+        qiblaHeadingLabel = tv("أعلى الهاتف: جارٍ قراءة البوصلة", 12, MUTED, Typeface.NORMAL);
+        qiblaHeadingLabel.setGravity(Gravity.RIGHT);
+        qiblaDetails.addView(qiblaHeadingLabel, new LinearLayout.LayoutParams(-1, -2));
+
         qiblaStatus = tv("جارٍ تحديد اتجاه الهاتف...", 13, WHITE, Typeface.BOLD);
         qiblaStatus.setGravity(Gravity.RIGHT);
         qiblaStatus.setPadding(0, dp(7), 0, 0);
@@ -325,6 +339,22 @@ public class MainActivity extends Activity {
         qiblaHint.setGravity(Gravity.RIGHT);
         qiblaHint.setPadding(0, dp(6), 0, 0);
         qiblaDetails.addView(qiblaHint, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView refreshQiblaLocation = pill("تحديث الموقع", false);
+        refreshQiblaLocation.setOnClickListener(v -> {
+            if (!LocationSupport.permitted(this)) {
+                requestPermissions(new String[]{
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                }, 7);
+            } else {
+                refreshLocation();
+                Toast.makeText(this, "جارٍ تحديث الموقع؛ تحقق من اسم المدينة أعلى الشاشة",
+                        Toast.LENGTH_SHORT).show();
+            }
+        });
+        qiblaDetails.addView(refreshQiblaLocation,
+                new LinearLayout.LayoutParams(-1, -2));
         qiblaLine.addView(qiblaDetails, new LinearLayout.LayoutParams(0, -2, 1f));
         prayerCard.addView(qiblaLine, new LinearLayout.LayoutParams(-1, -2));
         updateQiblaDirection();
@@ -499,10 +529,22 @@ public class MainActivity extends Activity {
 
     private void loadSavedLocation() {
         SharedPreferences p = getSharedPreferences("bas_lock_settings", MODE_PRIVATE);
-        try {
-            lat = Double.longBitsToDouble(p.getLong("saved_lat_bits", Double.doubleToLongBits(lat)));
-            lon = Double.longBitsToDouble(p.getLong("saved_lon_bits", Double.doubleToLongBits(lon)));
-        } catch (Exception ignored) {}
+        // Existing prayer times can keep the legacy fallback, but the qibla
+        // compass must not silently interpret Tabuk as the actual location.
+        hasConfirmedQiblaLocation = false;
+        if (p.contains("saved_lat_bits") && p.contains("saved_lon_bits")) {
+            try {
+                double savedLat = Double.longBitsToDouble(p.getLong("saved_lat_bits", 0L));
+                double savedLon = Double.longBitsToDouble(p.getLong("saved_lon_bits", 0L));
+                if (Double.isFinite(savedLat) && Double.isFinite(savedLon)
+                        && Math.abs(savedLat) <= 90 && Math.abs(savedLon) <= 180
+                        && !(savedLat == 0 && savedLon == 0)) {
+                    lat = savedLat;
+                    lon = savedLon;
+                    hasConfirmedQiblaLocation = true;
+                }
+            } catch (Exception ignored) {}
+        }
         if (locationName != null) updateLocationName();
         updateQiblaDirection();
     }
@@ -559,10 +601,20 @@ public class MainActivity extends Activity {
         if (!LocationSupport.permitted(this)) return;
         LocationSupport.refresh(this, fix -> {
             double latitude = fix.getLatitude(), longitude = fix.getLongitude();
-            if (Math.abs(latitude - lat) < 0.0001 && Math.abs(longitude - lon) < 0.0001) return;
+            if (!Double.isFinite(latitude) || !Double.isFinite(longitude)
+                    || Math.abs(latitude) > 90 || Math.abs(longitude) > 180
+                    || (latitude == 0 && longitude == 0)) return;
+            boolean moved = Math.abs(latitude - lat) >= 0.0001
+                    || Math.abs(longitude - lon) >= 0.0001;
             lat = latitude;
             lon = longitude;
+            hasConfirmedQiblaLocation = true;
             saveLocation(lat, lon);
+            updateQiblaDirection();
+            if (!moved) {
+                updateLocationName();
+                return;
+            }
             lastWeatherFetch = 0L;
             refreshTopWeather(true);
             updateLocationName();
@@ -586,10 +638,19 @@ public class MainActivity extends Activity {
     }
 
     private void updateQiblaDirection() {
-        qiblaBearing = LocationSupport.bearingToMakkah(lat, lon);
+        qiblaBearing = hasConfirmedQiblaLocation
+                ? LocationSupport.bearingToMakkah(lat, lon) : Double.NaN;
         if (qiblaDegrees != null) {
-            String value = arabicDigits(String.valueOf(Math.round(qiblaBearing)));
-            qiblaDegrees.setText("زاوية القبلة: " + value + "° من الشمال الحقيقي");
+            if (!hasConfirmedQiblaLocation) {
+                qiblaDegrees.setText("القبلة: يلزم تحديد الموقع");
+            } else {
+                String value = arabicDigits(String.valueOf(Math.round(qiblaBearing)));
+                String label = LocationSupport.label(
+                        getSharedPreferences("bas_lock_settings", MODE_PRIVATE), lat, lon)
+                        .replace("📍", "").trim();
+                qiblaDegrees.setText("القبلة: " + value
+                        + "° من الشمال الحقيقي\nحسب الموقع: " + label);
+            }
         }
         updateQiblaCompass();
     }
@@ -600,6 +661,8 @@ public class MainActivity extends Activity {
         rotationSensor = sensorManager == null ? null
                 : sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
         currentTrueHeading = Double.NaN;
+        compassTilted = false;
+        updateQiblaCompass();
         if (rotationSensor == null) {
             qiblaCompass.setDirections(qiblaBearing, Double.NaN);
             if (qiblaStatus != null)
@@ -616,7 +679,25 @@ public class MainActivity extends Activity {
     private void updateQiblaCompass() {
         if (qiblaCompass != null)
             qiblaCompass.setDirections(qiblaBearing, currentTrueHeading);
-        if (qiblaStatus == null || Double.isNaN(currentTrueHeading)) return;
+        if (qiblaHeadingLabel != null) {
+            if (Double.isNaN(currentTrueHeading)) {
+                qiblaHeadingLabel.setText("أعلى الهاتف: لا تتوفر قراءة موثوقة");
+            } else {
+                qiblaHeadingLabel.setText("أعلى الهاتف: "
+                        + arabicDigits(String.valueOf(Math.round(currentTrueHeading)))
+                        + "° من الشمال");
+            }
+        }
+        if (qiblaStatus == null) return;
+        if (!hasConfirmedQiblaLocation) {
+            qiblaStatus.setText("⚠ الموقع غير محدد؛ اضغط تحديث الموقع");
+            return;
+        }
+        if (compassTilted) {
+            qiblaStatus.setText("أمسك الهاتف أفقيًا والشاشة للأعلى");
+            return;
+        }
+        if (Double.isNaN(currentTrueHeading)) return;
 
         double turn = ((qiblaBearing - currentTrueHeading + 540.0) % 360.0) - 180.0;
         long degrees = Math.round(Math.abs(turn));
