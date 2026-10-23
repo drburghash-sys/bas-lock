@@ -36,7 +36,9 @@ import org.json.JSONObject;
 
 public class MainActivity extends Activity {
     private final Handler timer = new Handler(Looper.getMainLooper());
-    private LinearLayout content, prayerRow, notificationsBox;
+    private LinearLayout content, prayerRow, notificationsBox, prayerDetailsContainer;
+    private TextView prayerSectionTitle;
+    private boolean prayerDetailsExpanded = false;
     private ScrollView mainScroll;
     private final Set<String> expandedApps = new HashSet<>();
     private ImageView wallpaper;
@@ -146,7 +148,8 @@ public class MainActivity extends Activity {
         refreshTopWeather(false);
         safeRefreshAll();
         updateLocationName();
-        startCompass();
+        // Keep the motion sensor off while the prayer details are collapsed.
+        if (prayerDetailsExpanded) startCompass();
         if (LocationSupport.permitted(this)) refreshLocation();
         scrollToTop();
     }
@@ -295,18 +298,25 @@ public class MainActivity extends Activity {
         Space s1 = new Space(this); content.addView(s1, new LinearLayout.LayoutParams(1, dp(18)));
 
         LinearLayout prayerCard = card("prayer_alpha", 60);
-        TextView pTitle = tv("مواقيت الصلاة", 19, WHITE, Typeface.BOLD);
-        pTitle.setGravity(Gravity.RIGHT);
-        prayerCard.addView(pTitle);
+        prayerSectionTitle = tv("مواقيت الصلاة  ▾", 19, WHITE, Typeface.BOLD);
+        prayerSectionTitle.setGravity(Gravity.RIGHT);
+        prayerSectionTitle.setOnClickListener(v -> togglePrayerDetails());
+        prayerCard.addView(prayerSectionTitle);
+
         prayerRow = new LinearLayout(this);
         prayerRow.setOrientation(LinearLayout.HORIZONTAL);
         prayerRow.setGravity(Gravity.CENTER);
         prayerRow.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        prayerRow.setOnClickListener(v -> togglePrayerDetails());
         prayerCard.addView(prayerRow, new LinearLayout.LayoutParams(-1, -2));
+
+        // Everything except the six displayed times belongs to one collapsible group.
+        prayerDetailsContainer = new LinearLayout(this);
+        prayerDetailsContainer.setOrientation(LinearLayout.VERTICAL);
         nextPrayer = tv("", 18, GOLD, Typeface.BOLD);
         nextPrayer.setGravity(Gravity.CENTER);
         nextPrayer.setPadding(0, dp(14), 0, dp(3));
-        prayerCard.addView(nextPrayer);
+        prayerDetailsContainer.addView(nextPrayer);
 
         LinearLayout qiblaLine = new LinearLayout(this);
         qiblaLine.setOrientation(LinearLayout.HORIZONTAL);
@@ -356,7 +366,9 @@ public class MainActivity extends Activity {
         qiblaDetails.addView(refreshQiblaLocation,
                 new LinearLayout.LayoutParams(-1, -2));
         qiblaLine.addView(qiblaDetails, new LinearLayout.LayoutParams(0, -2, 1f));
-        prayerCard.addView(qiblaLine, new LinearLayout.LayoutParams(-1, -2));
+        prayerDetailsContainer.addView(qiblaLine, new LinearLayout.LayoutParams(-1, -2));
+        prayerCard.addView(prayerDetailsContainer, new LinearLayout.LayoutParams(-1, -2));
+        updatePrayerDetailsVisibility();
         updateQiblaDirection();
 
         content.addView(prayerCard, new LinearLayout.LayoutParams(-1, -2));
@@ -740,6 +752,35 @@ public class MainActivity extends Activity {
                 base.asr.plusMinutes(p.getInt("offset_asr", 0)),
                 base.maghrib.plusMinutes(p.getInt("offset_maghrib", 0)),
                 base.isha.plusMinutes(p.getInt("offset_isha", 0)));
+    }
+
+    private void togglePrayerDetails() {
+        prayerDetailsExpanded = !prayerDetailsExpanded;
+        updatePrayerDetailsVisibility();
+        if (prayerDetailsExpanded) {
+            updateQiblaDirection();
+            startCompass();
+        } else {
+            if (sensorManager != null) sensorManager.unregisterListener(compassListener);
+            currentTrueHeading = Double.NaN;
+        }
+    }
+
+    private void updatePrayerDetailsVisibility() {
+        if (prayerDetailsContainer != null) {
+            prayerDetailsContainer.setVisibility(prayerDetailsExpanded ? View.VISIBLE : View.GONE);
+        }
+        if (prayerSectionTitle != null) {
+            prayerSectionTitle.setText(prayerDetailsExpanded ? "مواقيت الصلاة  ▴" : "مواقيت الصلاة  ▾");
+            prayerSectionTitle.setContentDescription(prayerDetailsExpanded
+                    ? "مواقيت الصلاة، اضغط لإخفاء الصلاة القادمة والقبلة وتحديث الموقع"
+                    : "مواقيت الصلاة، اضغط لعرض الصلاة القادمة والقبلة وتحديث الموقع");
+        }
+        if (prayerRow != null) {
+            prayerRow.setContentDescription(prayerDetailsExpanded
+                    ? "اضغط على مواقيت الصلاة لإخفاء التفاصيل"
+                    : "اضغط على مواقيت الصلاة لإظهار التفاصيل");
+        }
     }
 
     private void renderPrayerTimes() {
