@@ -3,6 +3,9 @@ package com.bas.lock;
 import android.app.Notification;
 import android.app.KeyguardManager;
 import android.content.*;
+import android.graphics.PixelFormat;
+import android.view.*;
+import android.widget.FrameLayout;
 import android.os.Bundle;
 import android.os.Build;
 import android.provider.Settings;
@@ -12,6 +15,9 @@ import android.service.notification.StatusBarNotification;
 public class BasNotificationListener extends NotificationListenerService {
     private BroadcastReceiver screenReceiver;
     private BroadcastReceiver commandReceiver;
+    private WindowManager overlayManager;
+    private View wakeAnchor;
+    private final android.os.Handler wakeHandler = new android.os.Handler(android.os.Looper.getMainLooper());
 
     @Override public void onListenerConnected() {
         super.onListenerConnected();
@@ -25,6 +31,7 @@ public class BasNotificationListener extends NotificationListenerService {
                         null);
             } catch (Exception ignored) {}
         }
+        ensureWakeAnchor();
         if (screenReceiver == null) {
             screenReceiver = new BroadcastReceiver() {
                 @Override public void onReceive(Context context, Intent intent) {
@@ -36,15 +43,11 @@ public class BasNotificationListener extends NotificationListenerService {
                     if (!Settings.canDrawOverlays(BasNotificationListener.this)) return;
                     KeyguardManager km = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
                     if (km == null || !km.isKeyguardLocked()) return;
-                    // Best-effort only. Modern Android may block background activity launches.
-                    try {
-                        Intent i = new Intent(BasNotificationListener.this, MainActivity.class)
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                                        | Intent.FLAG_ACTIVITY_SINGLE_TOP
-                                        | Intent.FLAG_ACTIVITY_NO_ANIMATION)
-                                .putExtra("lock_mode", true);
-                        startActivity(i);
-                    } catch (Exception ignored) {}
+                    bringLockScreenForward();
+                    wakeHandler.postDelayed(() -> {
+                        KeyguardManager km2 = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+                        if (km2 != null && km2.isKeyguardLocked()) bringLockScreenForward();
+                    }, 220);
                 }
             };
             IntentFilter f = new IntentFilter(Intent.ACTION_SCREEN_ON);
@@ -99,6 +102,8 @@ public class BasNotificationListener extends NotificationListenerService {
             try { unregisterReceiver(commandReceiver); } catch (Exception ignored) {}
             commandReceiver = null;
         }
+        wakeHandler.removeCallbacksAndMessages(null);
+        removeWakeAnchor();
         super.onDestroy();
     }
 
@@ -152,6 +157,51 @@ public class BasNotificationListener extends NotificationListenerService {
                 || p.equals("com.samsung.android.dialer")
                 || p.equals("com.google.android.dialer")
                 || p.equals("com.android.dialer");
+    }
+
+    private void ensureWakeAnchor() {
+        if (wakeAnchor != null || !Settings.canDrawOverlays(this)) return;
+        try {
+            overlayManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+            FrameLayout anchor = new FrameLayout(this);
+            anchor.setBackgroundColor(android.graphics.Color.argb(3, 0, 0, 0));
+            WindowManager.LayoutParams p = new WindowManager.LayoutParams(
+                    2, 2,
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                            | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
+                    PixelFormat.TRANSLUCENT);
+            p.gravity = Gravity.TOP | Gravity.START;
+            p.x = 0; p.y = 0;
+            overlayManager.addView(anchor, p);
+            wakeAnchor = anchor;
+        } catch (Exception ignored) {
+            wakeAnchor = null;
+        }
+    }
+
+    private void removeWakeAnchor() {
+        if (wakeAnchor != null && overlayManager != null) {
+            try { overlayManager.removeView(wakeAnchor); } catch (Exception ignored) {}
+        }
+        wakeAnchor = null;
+        overlayManager = null;
+    }
+
+    private void bringLockScreenForward() {
+        try {
+            ensureWakeAnchor();
+            Intent i = new Intent(this, MainActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                            | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            | Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                    .putExtra("lock_mode", true)
+                    .putExtra("wake_from_power", true);
+            startActivity(i);
+        } catch (Exception ignored) {}
     }
 
     private int classify(Notification n, String pkg, String title, String text) {
