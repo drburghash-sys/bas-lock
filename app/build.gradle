@@ -1,3 +1,5 @@
+def wakeTest = project.hasProperty('wakeTest')
+
 plugins {
     id 'com.android.application'
 }
@@ -16,7 +18,7 @@ android {
     }
 
     defaultConfig {
-        applicationId 'com.bas.lock'
+        applicationId wakeTest ? 'com.bas.lock.waketest' : 'com.bas.lock'
         minSdk 28
         targetSdk 35
         versionCode 15
@@ -25,7 +27,7 @@ android {
 
     buildTypes {
         debug {
-            signingConfig signingConfigs.stableDebug
+            if (!wakeTest) signingConfig signingConfigs.stableDebug
         }
         release {
             minifyEnabled false
