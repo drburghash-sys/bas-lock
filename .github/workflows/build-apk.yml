@@ -1,4 +1,4 @@
-name: Build BAS Lock APK
+name: Build BAS Lock 2 APK
 
 on:
   workflow_dispatch:
@@ -27,45 +27,26 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Restore stable BAS Lock signing key
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: bas-lock-debug-keystore-v1
-
-      - name: Restore permanent signing key when configured
+      - name: Create BAS Lock 2 debug signing key
         shell: bash
-        env:
-          BAS_LOCK_KEYSTORE_B64: ${{ secrets.BAS_LOCK_KEYSTORE_B64 }}
         run: |
           mkdir -p ~/.android
-          if [ -n "$BAS_LOCK_KEYSTORE_B64" ]; then
-            printf '%s' "$BAS_LOCK_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
-          fi
-
-      - name: Verify stable signing key exists
-        shell: bash
-        run: |
           if [ ! -s ~/.android/debug.keystore ]; then
-            echo "::error::BAS Lock signing keystore is missing. Refusing to generate a different signature and risk existing app data."
-            exit 1
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=BAS Lock 2,O=Personal,C=SA"
           fi
 
-      - name: Verify BAS Lock signing certificate fingerprint
-        shell: bash
-        run: |
-          ACTUAL="$(keytool -exportcert -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey | sha256sum | cut -d' ' -f1)"
-          REQUIRED="a3166125736a561783da4211e579c99a2e56d81a2b058af26100b87226e9a498"
-          echo "Signing certificate SHA-256: $ACTUAL"
-          if [ "$ACTUAL" != "$REQUIRED" ]; then
-            echo "::error::BAS Lock signing certificate does not match the pinned key. Build aborted to protect app update compatibility."
-            exit 1
-          fi
-
-      - name: Build debug APK
+      - name: Build BAS Lock 2 debug APK
         run: gradle :app:assembleDebug --stacktrace
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BAS-Lock-debug-apk
+          name: BAS-Lock-2-apk
           path: app/build/outputs/apk/debug/app-debug.apk
