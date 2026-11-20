@@ -27,6 +27,11 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Rename wake test app
+        shell: bash
+        run: |
+          sed -i 's#<string name="app_name">BAS Lock</string>#<string name="app_name">BAS Lock Wake Test</string>#' app/src/main/res/values/strings.xml
+
       - name: Build side-by-side wake test APK
         run: gradle :app:assembleDebug -PwakeTest --stacktrace
 
