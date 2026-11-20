@@ -10,7 +10,7 @@ import java.util.List;
 
 public final class NotificationStore {
     public static final class Item {
-        public String key, pkg, app, title, text;
+        public String key, pkg, app, title, text, fullText;
         public long when;
         public int level;
     }
@@ -47,6 +47,7 @@ public final class NotificationStore {
                 Item x = new Item();
                 x.key = o.optString("key"); x.pkg = o.optString("pkg"); x.app = o.optString("app");
                 x.title = o.optString("title"); x.text = o.optString("text");
+                x.fullText = o.optString("fullText", x.text);
                 x.when = o.optLong("when"); x.level = o.optInt("level", 1);
                 out.add(x);
             }
@@ -71,7 +72,8 @@ public final class NotificationStore {
             for (Item x : items) {
                 JSONObject o = new JSONObject();
                 o.put("key", x.key); o.put("pkg", x.pkg); o.put("app", x.app);
-                o.put("title", x.title); o.put("text", x.text); o.put("when", x.when); o.put("level", x.level);
+                o.put("title", x.title); o.put("text", x.text); o.put("fullText", x.fullText);
+                o.put("when", x.when); o.put("level", x.level);
                 arr.put(o);
             }
         } catch (Exception ignored) {}
