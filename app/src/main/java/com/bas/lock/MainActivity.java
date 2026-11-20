@@ -41,6 +41,7 @@ public class MainActivity extends Activity {
     private boolean prayerDetailsExpanded = false;
     private ScrollView mainScroll;
     private final Set<String> expandedApps = new HashSet<>();
+    private final Set<String> expandedMessageKeys = new HashSet<>();
     private ImageView wallpaper;
     private View backgroundShade;
     private TextView clock, dateLine, hijriLine, locationName, nextPrayer, notificationSummary;
@@ -939,8 +940,9 @@ public class MainActivity extends Activity {
 
             if (expanded) {
                 for (NotificationStore.Item x : groupItems) {
-                    LinearLayout row = buildNotificationRow(x, locked, showUnlockedText);
-                    attachSwipeDismiss(row, () -> dismissNotification(x.key));
+                    boolean messageExpanded = expandedMessageKeys.contains(x.key);
+                    LinearLayout row = buildNotificationRow(x, locked, showUnlockedText, messageExpanded);
+                    attachMessageGestures(row, x.key, () -> dismissNotification(x.key));
                     group.addView(row);
                 }
             }
@@ -948,13 +950,14 @@ public class MainActivity extends Activity {
             notificationsBox.addView(group);
         }
 
-        TextView hint = tv("اضغط على التطبيق لعرض إشعاراته. اسحب إشعارًا لإغلاقه، أو اسحب مجموعة التطبيق لإغلاق جميع إشعاراته.", 11, MUTED, Typeface.NORMAL);
+        TextView hint = tv("اضغط على التطبيق لعرض إشعاراته. اسحب الرسالة للأسفل لقراءة محتواها، وللأعلى لطيّها، ويمينًا أو يسارًا لإغلاقها.", 11, MUTED, Typeface.NORMAL);
         hint.setGravity(Gravity.CENTER);
         hint.setPadding(dp(8), dp(12), dp(8), dp(3));
         notificationsBox.addView(hint);
     }
 
-    private LinearLayout buildNotificationRow(NotificationStore.Item x, boolean locked, boolean showUnlockedText) {
+    private LinearLayout buildNotificationRow(NotificationStore.Item x, boolean locked,
+                                                    boolean showUnlockedText, boolean messageExpanded) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(dp(12), dp(9), dp(12), dp(9));
@@ -970,18 +973,44 @@ public class MainActivity extends Activity {
         rp.setMargins(dp(12), dp(6), dp(12), 0);
         row.setLayoutParams(rp);
 
-        String summary;
+        SharedPreferences prefs = getSharedPreferences("bas_lock_settings", MODE_PRIVATE);
+        boolean allowLockPreview = prefs.getBoolean("lock_message_preview", true);
+
+        String collapsed;
         if (locked || !showUnlockedText) {
-            summary = TextUtils.isEmpty(x.title) ? "إشعار جديد" : x.title;
+            collapsed = TextUtils.isEmpty(x.title) ? "إشعار جديد" : x.title;
         } else {
-            summary = TextUtils.isEmpty(x.text) ? x.title :
+            collapsed = TextUtils.isEmpty(x.text) ? x.title :
                     (TextUtils.isEmpty(x.title) ? x.text : x.title + " — " + x.text);
         }
 
+        String full = !TextUtils.isEmpty(x.fullText) ? x.fullText :
+                (TextUtils.isEmpty(x.text) ? collapsed :
+                        (TextUtils.isEmpty(x.title) ? x.text : x.title + "\n" + x.text));
+
+        boolean canReveal = !locked || allowLockPreview;
+        String summary = messageExpanded && canReveal ? full : collapsed;
+
         TextView body = tv(summary, 13, WHITE, Typeface.NORMAL);
         body.setGravity(Gravity.RIGHT);
-        body.setMaxLines(3);
+        body.setMaxLines(messageExpanded && canReveal ? Integer.MAX_VALUE : 3);
+        body.setLineSpacing(0f, 1.08f);
         row.addView(body);
+
+        if (messageExpanded) {
+            TextView state = tv(canReveal
+                    ? "↑ اسحب للأعلى لطي الرسالة"
+                    : "عرض محتوى الرسائل على شاشة القفل متوقف من الإعدادات",
+                    10, GOLD, Typeface.BOLD);
+            state.setGravity(Gravity.RIGHT);
+            state.setPadding(0, dp(5), 0, 0);
+            row.addView(state);
+        } else {
+            TextView state = tv("↓ اسحب للأسفل لعرض الرسالة", 10, MUTED, Typeface.NORMAL);
+            state.setGravity(Gravity.RIGHT);
+            state.setPadding(0, dp(4), 0, 0);
+            row.addView(state);
+        }
 
         LinearLayout controls = new LinearLayout(this);
         controls.setOrientation(LinearLayout.HORIZONTAL);
@@ -1012,6 +1041,7 @@ public class MainActivity extends Activity {
     }
 
     private void dismissNotification(String key) {
+        expandedMessageKeys.remove(key);
         NotificationStore.remove(this, key);
         Intent i = new Intent("com.bas.lock.DISMISS_KEY")
                 .setPackage(getPackageName())
@@ -1023,11 +1053,66 @@ public class MainActivity extends Activity {
     private void dismissPackage(String pkg) {
         NotificationStore.removePackage(this, pkg);
         expandedApps.remove(pkg);
+        expandedMessageKeys.clear();
         Intent i = new Intent("com.bas.lock.DISMISS_PACKAGE")
                 .setPackage(getPackageName())
                 .putExtra("pkg", pkg);
         sendBroadcast(i);
         refreshNotifications();
+    }
+
+    private void attachMessageGestures(View view, String key, Runnable onDismiss) {
+        final float[] downX = new float[1];
+        final float[] downY = new float[1];
+        view.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    downX[0] = event.getRawX();
+                    downY[0] = event.getRawY();
+                    v.setTranslationX(0f);
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    float dx = event.getRawX() - downX[0];
+                    float dy = event.getRawY() - downY[0];
+                    if (Math.abs(dx) > Math.abs(dy)) {
+                        v.setTranslationX(dx * 0.65f);
+                        v.setAlpha(Math.max(0.35f, 1f - Math.abs(dx) / Math.max(1f, v.getWidth())));
+                    }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                    float totalDx = event.getRawX() - downX[0];
+                    float totalDy = event.getRawY() - downY[0];
+
+                    if (Math.abs(totalDx) > dp(90) && Math.abs(totalDx) > Math.abs(totalDy) * 1.2f) {
+                        v.animate().translationX(totalDx > 0 ? v.getWidth() : -v.getWidth())
+                                .alpha(0f).setDuration(140).withEndAction(onDismiss).start();
+                        return true;
+                    }
+
+                    v.animate().translationX(0f).alpha(1f).setDuration(100).start();
+
+                    if (totalDy > dp(55) && Math.abs(totalDy) > Math.abs(totalDx) * 1.1f) {
+                        expandedMessageKeys.add(key);
+                        refreshNotifications();
+                        return true;
+                    }
+
+                    if (totalDy < -dp(55) && Math.abs(totalDy) > Math.abs(totalDx) * 1.1f) {
+                        expandedMessageKeys.remove(key);
+                        refreshNotifications();
+                        return true;
+                    }
+
+                    if (Math.abs(totalDx) < dp(12) && Math.abs(totalDy) < dp(12)) {
+                        v.performClick();
+                    }
+                    return true;
+                case MotionEvent.ACTION_CANCEL:
+                    v.animate().translationX(0f).alpha(1f).setDuration(100).start();
+                    return true;
+            }
+            return false;
+        });
     }
 
     private void attachSwipeDismiss(View view, Runnable onDismiss) {
