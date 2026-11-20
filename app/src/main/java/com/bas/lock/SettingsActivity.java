@@ -469,6 +469,46 @@ public class SettingsActivity extends Activity {
         root.addView(box);
     }
 
+    private void addSamsungBackgroundCard() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(12),dp(11),dp(12),dp(11));
+        GradientDrawable g = new GradientDrawable();
+        g.setCornerRadius(dp(16));
+        g.setColor(Color.argb(55,255,255,255));
+        box.setBackground(g);
+
+        TextView title = tv("تشغيل BAS Lock في الخلفية", 14, WHITE, Typeface.BOLD);
+        box.addView(title);
+
+        TextView samsung = button("إضافة BAS Lock إلى Never sleeping apps");
+        samsung.setOnClickListener(v -> {
+            try {
+                Intent i = new Intent("com.samsung.android.sm.ACTION_OPEN_CHECKABLE_LISTACTIVITY");
+                i.setPackage("com.samsung.android.lool");
+                i.putExtra("activity_type", 2);
+                startActivity(i);
+            } catch (Exception e) {
+                try {
+                    startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                } catch (Exception ignored) {}
+            }
+        });
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1,-2);
+        sp.setMargins(0,dp(7),0,0);
+        samsung.setLayoutParams(sp);
+        box.addView(samsung);
+
+        TextView note = tv("على أجهزة سامسونج يُفضّل منع النظام من إدخال BAS Lock في السكون حتى تبقى استجابة زر الطاقة مستقرة.", 11, MUTED, Typeface.NORMAL);
+        note.setPadding(0,dp(7),0,0);
+        box.addView(note);
+
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1,-2);
+        p.setMargins(0,dp(7),0,dp(7));
+        box.setLayoutParams(p);
+        root.addView(box);
+    }
+
     private boolean hasNotificationAccess() {
         try {
             String enabled = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
