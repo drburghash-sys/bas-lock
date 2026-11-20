@@ -1,9 +1,9 @@
-def wakeTest = project.hasProperty('wakeTest')
-
 plugins {
     id 'com.android.application'
 }
 
+
+def wakeTest = project.hasProperty('wakeTest')
 android {
     namespace 'com.bas.lock'
     compileSdk 35
