@@ -121,6 +121,7 @@ public class BasNotificationListener extends NotificationListenerService {
         item.app = appName(item.pkg);
         item.title = safe(e.getCharSequence(Notification.EXTRA_TITLE));
         item.text = safe(e.getCharSequence(Notification.EXTRA_TEXT));
+        item.fullText = extractFullText(e, item.title, item.text);
         item.when = sbn.getPostTime();
         item.level = classify(n, item.pkg, item.title, item.text);
         NotificationStore.upsert(this, item);
@@ -212,6 +213,54 @@ public class BasNotificationListener extends NotificationListenerService {
         if (all.contains("otp") || all.contains("verification") || all.contains("رمز") ||
                 all.contains("مستشفى") || all.contains("hospital") || all.contains("bank") || all.contains("بنك")) return 3;
         return 1;
+    }
+
+    private String extractFullText(Bundle e, String title, String text) {
+        java.util.LinkedHashSet<String> parts = new java.util.LinkedHashSet<>();
+
+        if (text != null && !text.trim().isEmpty()) parts.add(text.trim());
+
+        CharSequence big = e.getCharSequence(Notification.EXTRA_BIG_TEXT);
+        if (big != null && !big.toString().trim().isEmpty()) parts.add(big.toString().trim());
+
+        CharSequence[] lines = e.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);
+        if (lines != null) {
+            for (CharSequence line : lines) {
+                if (line != null && !line.toString().trim().isEmpty()) {
+                    parts.add(line.toString().trim());
+                }
+            }
+        }
+
+        try {
+            android.os.Parcelable[] messages = e.getParcelableArray(Notification.EXTRA_MESSAGES);
+            if (messages != null) {
+                for (android.os.Parcelable parcel : messages) {
+                    if (!(parcel instanceof Bundle)) continue;
+                    Bundle b = (Bundle) parcel;
+                    String msg = safe(b.getCharSequence("text")).trim();
+                    String sender = safe(b.getCharSequence("sender")).trim();
+                    if (!msg.isEmpty()) {
+                        parts.add(sender.isEmpty() ? msg : sender + ": " + msg);
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        CharSequence sub = e.getCharSequence(Notification.EXTRA_SUB_TEXT);
+        if (sub != null && !sub.toString().trim().isEmpty()) parts.add(sub.toString().trim());
+
+        if (parts.isEmpty()) {
+            if (title != null && !title.trim().isEmpty()) return title.trim();
+            return "";
+        }
+
+        StringBuilder out = new StringBuilder();
+        for (String part : parts) {
+            if (out.length() > 0) out.append("\n");
+            out.append(part);
+        }
+        return out.toString();
     }
 
     private String appName(String pkg) {
