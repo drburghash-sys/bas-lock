@@ -49,7 +49,7 @@ public class SettingsActivity extends Activity {
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         root.setPadding(dp(18), dp(34), dp(18), dp(30)); scroll.addView(root);
 
-        TextView title = tv("إعدادات BAS Lock", 25, WHITE, Typeface.BOLD); title.setGravity(Gravity.RIGHT); root.addView(title);
+        TextView title = tv("إعدادات BAS Lock 2", 25, WHITE, Typeface.BOLD); title.setGravity(Gravity.RIGHT); root.addView(title);
         TextView sub = tv("تصحيح المواقيت والخصوصية", 13, MUTED, Typeface.NORMAL); sub.setPadding(0,0,0,dp(18)); root.addView(sub);
 
         root.addView(sectionTitle("تصحيح مواقيت الصلاة بالدقائق"));
@@ -90,7 +90,23 @@ public class SettingsActivity extends Activity {
         addToggle("الظهور التلقائي عند إضاءة شاشة القفل", "auto_show", true,
                 "لن يعمل تلقائيًا إلا بعد منح الوصول إلى الإشعارات و«الظهور فوق التطبيقات».");
         addToggle("إظهار نص الإشعار بعد فتح الجهاز", "show_text_unlocked", true,
-                "أثناء قفل الجهاز لا يعرض BAS Lock نص الإشعار الكامل.");
+                "أثناء قفل الجهاز لا يعرض BAS Lock 2 نص الإشعار الكامل إلا عند السحب للأسفل.");
+        addToggle("السحب لعرض محتوى الرسائل على شاشة القفل", "lock_message_preview", true,
+                "عند تفعيله يمكن قراءة محتوى WhatsApp والرسائل النصية والبريد من الإشعار نفسه دون فتح التطبيق. أي شخص يرى شاشة القفل قد يرى هذا المحتوى.");
+
+        TextView removeOld = button("إزالة BAS Lock القديم");
+        removeOld.setOnClickListener(v -> {
+            try {
+                Intent i = new Intent(Intent.ACTION_DELETE, Uri.parse("package:com.bas.lock"));
+                startActivity(i);
+            } catch (Exception e) {
+                Toast.makeText(this, "تعذر فتح شاشة إزالة النسخة القديمة", Toast.LENGTH_SHORT).show();
+            }
+        });
+        LinearLayout.LayoutParams oldParams = new LinearLayout.LayoutParams(-1, -2);
+        oldParams.setMargins(0, dp(12), 0, 0);
+        removeOld.setLayoutParams(oldParams);
+        root.addView(removeOld);
 
         TextView done = button("تم"); done.setTextColor(NAVY);
         GradientDrawable gd = new GradientDrawable(); gd.setCornerRadius(dp(18)); gd.setColor(GOLD); done.setBackground(gd);
